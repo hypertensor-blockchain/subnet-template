@@ -75,14 +75,7 @@ pre-commit install
 
 ## Documentation
 
-Documentation is available at [ReadTheDocs](https://py-libp2p-subnet.readthedocs.io).
-
-To build documentation locally:
-
-```bash
-cd docs
-make html
-```
+Coming soon...
 
 ## Contributing
 
