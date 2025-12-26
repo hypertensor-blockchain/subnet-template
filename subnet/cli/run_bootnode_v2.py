@@ -3,6 +3,7 @@
 import argparse
 import logging
 import sys
+import os
 
 import trio
 import random
@@ -48,11 +49,25 @@ from libp2p.security.insecure.transport import (
     PLAINTEXT_PROTOCOL_ID,
     InsecureTransport,
 )
+from subnet.network.pos.pos_transport import (
+    POSTransport,
+    PROTOCOL_ID as POS_PROTOCOL_ID,
+)
 from libp2p.crypto.keys import KeyPair
 from libp2p.peer.pb import crypto_pb2
 from libp2p.crypto.ed25519 import Ed25519PrivateKey
 from libp2p.records.validator import NamespacedValidator
 from subnet.hypertensor.mock.local_chain_functions import LocalMockHypertensor
+from subnet.hypertensor.chain_functions import Hypertensor, KeypairFrom
+from subnet.utils.bootstrap import connect_to_bootstrap_nodes
+from subnet.network.pos.proof_of_stake import ProofOfStake
+from substrateinterface import Keypair as SubstrateKeypair, KeypairType
+from dotenv import load_dotenv
+from pathlib import Path
+
+load_dotenv(os.path.join(Path.cwd(), ".env"))
+
+PHRASE = os.getenv("PHRASE")
 
 # Configure logging
 logging.basicConfig(
@@ -82,7 +97,7 @@ Examples:
     --bootstrap /ip4/192.168.1.101/tcp/31330/p2p/QmPeer2
 
   # Run a bootnode with an identity file
-  python -m subnet.cli.run_bootnode_v2 --identity_path ed25519-bootnode.key --port 38959
+  python -m subnet.cli.run_bootnode_v2 --identity_path bootnode-ed25519.key --port 38959 --no_blockchain_rpc
         """,
     )
 
@@ -116,6 +131,30 @@ Examples:
     )
 
     parser.add_argument(
+        "--no_blockchain_rpc", action="store_true", help="[Testing] Run with no RPC"
+    )
+
+    parser.add_argument(
+        "--local_rpc",
+        action="store_true",
+        help="[Testing] Run in local RPC mode, uses LOCAL_RPC",
+    )
+
+    parser.add_argument(
+        "--tensor_private_key",
+        type=str,
+        required=False,
+        help="[Testing] Hypertensor blockchain private key",
+    )
+
+    parser.add_argument(
+        "--phrase",
+        type=str,
+        required=False,
+        help="[Testing] Coldkey phrase that controls actions which include funds, such as registering, and staking",
+    )
+
+    parser.add_argument(
         "--log-level",
         "-l",
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
@@ -131,28 +170,6 @@ Examples:
     )
 
     return parser.parse_args()
-
-
-# function to take bootstrap_nodes as input and connects to them
-async def connect_to_bootstrap_nodes(host: IHost, bootstrap_addrs: list[str]) -> None:
-    """
-    Connect to the bootstrap nodes provided in the list.
-
-    params: host: The host instance to connect to
-            bootstrap_addrs: List of bootstrap node addresses
-
-    Returns
-    -------
-        None
-
-    """
-    for addr in bootstrap_addrs:
-        try:
-            peerInfo = info_from_p2p_addr(Multiaddr(addr))
-            host.get_peerstore().add_addrs(peerInfo.peer_id, peerInfo.addrs, 300)
-            await host.connect(peerInfo)
-        except Exception as e:
-            logger.error(f"Failed to connect to bootstrap node {addr}: {e}")
 
 
 async def run_bootnode(args: argparse.Namespace):
@@ -190,22 +207,61 @@ async def run_bootnode(args: argparse.Namespace):
                 "No bootstrap nodes provided. The node will not be able to connect to other nodes."
             )
 
-        reset_db = False
-        if not args.bootstrap_addrs:
-            # Reset when deploying a new swarm
-            reset_db = True
-        hypertensor = LocalMockHypertensor(
-            subnet_id=args.subnet_id,
-            peer_id=PeerID.from_pubkey(key_pair.public_key),
-            subnet_node_id=0,
-            coldkey="",
-            hotkey="",
-            bootnode_peer_id="",
-            client_peer_id="",
-            reset_db=reset_db,
+        if not args.no_blockchain_rpc:
+            if args.local_rpc:
+                rpc = os.getenv("LOCAL_RPC")
+            else:
+                rpc = os.getenv("DEV_RPC")
+
+            if args.phrase is not None:
+                hypertensor = Hypertensor(rpc, args.phrase)
+                substrate_keypair = SubstrateKeypair.create_from_mnemonic(
+                    args.phrase, crypto_type=KeypairType.ECDSA
+                )
+                hotkey = substrate_keypair.ss58_address
+                logger.info(f"hotkey: {hotkey}")
+            elif args.tensor_private_key is not None:
+                hypertensor = Hypertensor(
+                    rpc, args.tensor_private_key, KeypairFrom.PRIVATE_KEY
+                )
+                substrate_keypair = SubstrateKeypair.create_from_private_key(
+                    args.tensor_private_key, crypto_type=KeypairType.ECDSA
+                )
+                hotkey = substrate_keypair.ss58_address
+                logger.info(f"hotkey: {hotkey}")
+            else:
+                # Default to using PHRASE if no other options are provided
+                hypertensor = Hypertensor(rpc, PHRASE)
+        else:
+            # Run mock hypertensor blockchain for testing
+            hypertensor = LocalMockHypertensor(
+                subnet_id=args.subnet_id,
+                peer_id=PeerID.from_pubkey(key_pair.public_key),
+                subnet_node_id=0,
+                coldkey="",
+                hotkey="",
+                bootnode_peer_id="",
+                client_peer_id="",
+                reset_db=True if not args.bootstrap_addrs else False,
+            )
+
+        pos_transport = POSTransport(
+            noise_transport=NoiseTransport(
+                key_pair, noise_privkey=create_new_x25519_key_pair().private_key
+            ),
+            pos=ProofOfStake(
+                subnet_id=args.subnet_id,
+                hypertensor=hypertensor,
+                min_class=0,
+            ),
         )
 
-        host = new_host(key_pair=key_pair)
+        secure_transports_by_protocol: Mapping[TProtocol, ISecureTransport] = {
+            POS_PROTOCOL_ID: pos_transport,
+        }
+
+        host = new_host(key_pair=key_pair, sec_opt=secure_transports_by_protocol)
+        # host = new_host(key_pair=key_pair)
 
         from libp2p.utils.address_validation import (
             get_available_interfaces,

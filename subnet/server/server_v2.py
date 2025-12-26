@@ -61,6 +61,8 @@ from libp2p.crypto.ed25519 import Ed25519PrivateKey
 from libp2p.records.validator import NamespacedValidator
 from subnet.hypertensor.mock.local_chain_functions import LocalMockHypertensor
 from subnet.consensus.consensus import Consensus
+from subnet.utils.bootstrap import connect_to_bootstrap_nodes
+from subnet.hypertensor.chain_functions import Hypertensor
 
 import logging
 
@@ -74,6 +76,8 @@ logger = logging.getLogger("server/1.0.0")
 
 
 class Server:
+    """ """
+
     def __init__(
         self,
         *,
@@ -82,7 +86,7 @@ class Server:
         key_pair: KeyPair,
         subnet_id: int = 0,
         subnet_node_id: int = 0,
-        hypertensor: LocalMockHypertensor,
+        hypertensor: Hypertensor | LocalMockHypertensor,
         **kwargs,
     ):
         self.port = port
@@ -93,9 +97,6 @@ class Server:
         self.hypertensor = hypertensor
 
     async def run(self):
-        """
-        Keep server running forever
-        """
         try:
             bootstrap_nodes = []
 
@@ -103,16 +104,27 @@ class Server:
                 for addr in self.bootstrap_addrs:
                     bootstrap_nodes.append(addr)
 
-            # if self.identity_path is None:
-            #     key_pair = create_new_key_pair(secrets.token_bytes(32))
-            # else:
-            #     with open(f"{self.identity_path}", "rb") as f:
-            #         data = f.read()
-            #     private_key = crypto_pb2.PrivateKey.FromString(data)
-            #     ed25519_private_key = Ed25519PrivateKey.from_bytes(private_key.Data)
-            #     public_key = ed25519_private_key.get_public_key()
-            #     key_pair = KeyPair(ed25519_private_key, public_key)
-            host = new_host(key_pair=self.key_pair)
+            pos_transport = POSTransport(
+                noise_transport=NoiseTransport(
+                    self.key_pair,
+                    noise_privkey=create_new_x25519_key_pair().private_key,
+                ),
+                pos=ProofOfStake(
+                    subnet_id=self.subnet_id,
+                    hypertensor=self.hypertensor,
+                    min_class=0,
+                ),
+            )
+
+            secure_transports_by_protocol: Mapping[TProtocol, ISecureTransport] = {
+                POS_PROTOCOL_ID: pos_transport,
+            }
+
+            host = new_host(
+                key_pair=self.key_pair, sec_opt=secure_transports_by_protocol
+            )
+
+            # host = new_host(key_pair=self.key_pair)
 
             from libp2p.utils.address_validation import (
                 get_available_interfaces,
@@ -162,7 +174,7 @@ class Server:
                 )
 
                 nursery.start_soon(start_heartbeat, dht, self.key_pair)
-                nursery.start_soon(print_heartbeats, dht)
+                # nursery.start_soon(print_heartbeats, dht)
 
                 consensus = Consensus(
                     dht=dht,
@@ -194,28 +206,6 @@ class Server:
             sys.exit(1)
 
 
-# function to take bootstrap_nodes as input and connects to them
-async def connect_to_bootstrap_nodes(host: IHost, bootstrap_addrs: list[str]) -> None:
-    """
-    Connect to the bootstrap nodes provided in the list.
-
-    params: host: The host instance to connect to
-            bootstrap_addrs: List of bootstrap node addresses
-
-    Returns
-    -------
-        None
-
-    """
-    for addr in bootstrap_addrs:
-        try:
-            peerInfo = info_from_p2p_addr(Multiaddr(addr))
-            host.get_peerstore().add_addrs(peerInfo.peer_id, peerInfo.addrs, 300)
-            await host.connect(peerInfo)
-        except Exception as e:
-            logger.error(f"Failed to connect to bootstrap node {addr}: {e}")
-
-
 async def start_heartbeat(dht: KadDHT, keypair: KeyPair):
     peer_id = PeerID.from_pubkey(keypair.public_key)
     key = f"/pk/{peer_id.to_bytes().hex()}"
@@ -229,26 +219,26 @@ async def start_heartbeat(dht: KadDHT, keypair: KeyPair):
         await trio.sleep(15)
 
 
-async def print_heartbeats(dht: KadDHT):
-    """
-    It's impossible to get every Peer ID in the (a large) network so we test using
-    the test IDs to get the heartbeat
+# async def print_heartbeats(dht: KadDHT):
+#     """
+#     It's impossible to get every Peer ID in the (a large) network so we test using
+#     the test IDs to get the heartbeat
 
-    In production: We use the blockchain to get the list of all peer IDs
-    """
-    peer_ids = [
-        "12D3KooWAkRWUdmXy5tkGQ1oUKxx2W4sXxsWr4ekrcvLCbA3BQTf",  # Alith
-        "12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF",  # Baltathar
-        "12D3KooWBqJu85tnb3WciU3LcXhCmTdkvMi4k1Zq3BshUPhVfTui",  # Charleth
-    ]
-    while True:
-        for base58_peer_id in peer_ids:
-            peer_id = PeerID.from_base58(base58_peer_id)
-            key = f"/pk/{peer_id.to_bytes().hex()}"
-            retrieved_value = await dht.get_value(key)
-            logger.info(f"[Print Heartbeat] {base58_peer_id}: {retrieved_value}")
+#     In production: We use the blockchain to get the list of all peer IDs
+#     """
+#     peer_ids = [
+#         "12D3KooWAkRWUdmXy5tkGQ1oUKxx2W4sXxsWr4ekrcvLCbA3BQTf",  # Alith
+#         "12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF",  # Baltathar
+#         "12D3KooWBqJu85tnb3WciU3LcXhCmTdkvMi4k1Zq3BshUPhVfTui",  # Charleth
+#     ]
+#     while True:
+#         for base58_peer_id in peer_ids:
+#             peer_id = PeerID.from_base58(base58_peer_id)
+#             key = f"/pk/{peer_id.to_bytes().hex()}"
+#             retrieved_value = await dht.get_value(key)
+#             logger.info(f"[Print Heartbeat] {base58_peer_id}: {retrieved_value}")
 
-        await trio.sleep(15)
+#         await trio.sleep(15)
 
 
 # async def mock_protocol_call(mock_protocol: MockProtocol, multiaddr: Multiaddr):

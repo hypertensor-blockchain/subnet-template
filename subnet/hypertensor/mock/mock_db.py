@@ -1,9 +1,21 @@
 import sqlite3
 import json
 import os
+from dataclasses import asdict, is_dataclass
 from typing import Optional
 
 DB_FILE = "mock_hypertensor.db"
+
+
+def _serialize_for_json(obj):
+    """Recursively convert dataclass objects to dicts for JSON serialization."""
+    if is_dataclass(obj) and not isinstance(obj, type):
+        return asdict(obj)
+    elif isinstance(obj, list):
+        return [_serialize_for_json(item) for item in obj]
+    elif isinstance(obj, dict):
+        return {k: _serialize_for_json(v) for k, v in obj.items()}
+    return obj
 
 
 class MockDatabase:
@@ -84,7 +96,9 @@ class MockDatabase:
         self._create_tables()
 
     def insert_subnet_node(self, subnet_id: int, node_info: dict):
-        classification_json = json.dumps(node_info.get("classification", {}))
+        classification_json = json.dumps(
+            _serialize_for_json(node_info.get("classification", {}))
+        )
 
         c = self.conn.cursor()
         c.execute(
@@ -121,10 +135,24 @@ class MockDatabase:
                 int(node_info.get("node_delegate_stake_balance", 0)),
                 int(node_info.get("penalties", 0)),
                 int(node_info.get("reputation", 0)),
-                json.dumps(node_info),
+                json.dumps(_serialize_for_json(node_info)),
             ),
         )
         self.conn.commit()
+
+    def delete_subnet_node(self, subnet_id: int, subnet_node_id: int) -> bool:
+        """
+        Delete a subnet node by subnet_id and subnet_node_id.
+
+        Returns True if a row was deleted, False otherwise.
+        """
+        c = self.conn.cursor()
+        c.execute(
+            "DELETE FROM subnet_nodes WHERE subnet_id = ? AND subnet_node_id = ?",
+            (subnet_id, subnet_node_id),
+        )
+        self.conn.commit()
+        return c.rowcount > 0
 
     def get_all_subnet_nodes(self, subnet_id: int) -> list[dict]:
         c = self.conn.cursor()
@@ -159,12 +187,12 @@ class MockDatabase:
                 epoch,
                 data["validator_id"],
                 data.get("validator_epoch_progress", 0),
-                json.dumps(data.get("attests", [])),
-                json.dumps(data.get("subnet_nodes", [])),
+                json.dumps(_serialize_for_json(data.get("attests", []))),
+                json.dumps(_serialize_for_json(data.get("subnet_nodes", []))),
                 data.get("prioritize_queue_node_id"),
                 data.get("remove_queue_node_id"),
-                json.dumps(data.get("data", [])),
-                json.dumps(data.get("args")),
+                json.dumps(_serialize_for_json(data.get("data", []))),
+                json.dumps(_serialize_for_json(data.get("args"))),
             ),
         )
         self.conn.commit()

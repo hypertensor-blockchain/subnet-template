@@ -39,12 +39,20 @@ class POSTransport:
         print("POSTransport secure_inbound")
         noise_secure_inbound = await self.noise_transport.secure_inbound(conn)
         print("POSTransport noise_secure_inbound", noise_secure_inbound)
+        print(
+            "POSTransport noise_secure_inbound remote_peer",
+            noise_secure_inbound.remote_peer,
+        )
 
         if self.pos is not None:
             if not self.proof_of_stake(
                 peer_id=noise_secure_inbound.remote_peer,
             ):
                 raise InvalidProofOfStake
+
+        print(
+            f"POSTransport inbound pos successful for {noise_secure_inbound.remote_peer}"
+        )
 
         return noise_secure_inbound
 
@@ -71,6 +79,10 @@ class POSTransport:
             conn, peer_id
         )
         print("POSTransport noise_secure_outbound", noise_secure_outbound)
+        print(
+            "POSTransport noise_secure_outbound remote_peer",
+            noise_secure_outbound.remote_peer,
+        )
 
         if self.pos is not None:
             if not self.proof_of_stake(
@@ -78,13 +90,19 @@ class POSTransport:
             ):
                 raise InvalidProofOfStake
 
+        print(
+            f"POSTransport outbound pos successful for {noise_secure_outbound.remote_peer}"
+        )
+
         return noise_secure_outbound
 
     def proof_of_stake(self, peer_id: ID) -> bool:
         try:
-            return self.pos.proof_of_stake(
+            pos = self.pos.proof_of_stake(
                 peer_id=peer_id,
             )
+            print(f"Proof of stake for {peer_id} is {pos}")
+            return pos
         except Exception as e:
-            print(f"Proof of stake failed: {e}")
+            print(f"Proof of stake failed: {e}", exc_info=True)
             return False

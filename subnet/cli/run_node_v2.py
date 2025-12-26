@@ -50,6 +50,7 @@ from libp2p.security.insecure.transport import (
 from libp2p.crypto.keys import KeyPair
 from libp2p.peer.pb import crypto_pb2
 from libp2p.crypto.ed25519 import Ed25519PrivateKey
+from subnet.utils.bootstrap import connect_to_bootstrap_nodes
 
 # Configure logging
 logging.basicConfig(
@@ -115,6 +116,23 @@ Examples:
         "--subnet_id", type=int, default=1, help="Subnet ID this bootnode belongs to. "
     )
 
+    parser.add_argument(
+        "--no_blockchain_rpc", action="store_true", help="[Testing] Run with no RPC"
+    )
+
+    parser.add_argument(
+        "--local_rpc",
+        action="store_true",
+        help="[Testing] Run in local RPC mode, uses LOCAL_RPC",
+    )
+
+    parser.add_argument(
+        "--private_key",
+        type=str,
+        required=False,
+        help="[Testing] Hypertensor blockchain private key",
+    )
+
     # add option to use verbose logging
     parser.add_argument(
         "--verbose",
@@ -130,28 +148,6 @@ Examples:
         logging.getLogger().setLevel(logging.INFO)
 
     return args
-
-
-# function to take bootstrap_nodes as input and connects to them
-async def connect_to_bootstrap_nodes(host: IHost, bootstrap_addrs: list[str]) -> None:
-    """
-    Connect to the bootstrap nodes provided in the list.
-
-    params: host: The host instance to connect to
-            bootstrap_addrs: List of bootstrap node addresses
-
-    Returns
-    -------
-        None
-
-    """
-    for addr in bootstrap_addrs:
-        try:
-            peerInfo = info_from_p2p_addr(Multiaddr(addr))
-            host.get_peerstore().add_addrs(peerInfo.peer_id, peerInfo.addrs, 300)
-            await host.connect(peerInfo)
-        except Exception as e:
-            logger.error(f"Failed to connect to bootstrap node {addr}: {e}")
 
 
 async def run_node(
@@ -240,26 +236,6 @@ async def run_node(
         sys.exit(1)
 
 
-# def main() -> None:
-#     """Main entry point for the CLI."""
-#     args = parse_args()
-
-#     # Set logging level
-#     logging.getLogger().setLevel(args.log_level)
-
-#     # Log startup information
-#     logger.info("Starting libp2p subnet server node...")
-
-#     port = args.port
-#     if port <= 0:
-#         port = random.randint(10000, 60000)
-#     logger.debug(f"Using port: {port}")
-
-
-#     if args.bootstrap_addrs:
-#         logger.info(f"Bootstrap peers: {args.bootstrap_addrs}")
-#     else:
-#         logger.info("Running as standalone node (no bootstrap peers)")
 def main():
     """Main entry point for the kademlia demo."""
     try:

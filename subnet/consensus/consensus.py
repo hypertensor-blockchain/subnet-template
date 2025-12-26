@@ -46,20 +46,6 @@ class Consensus:
         self.slot: int | None = None  # subnet epoch slot, set in `run_activate_subnet`
         self.stop = trio.Event()
 
-        # if start:
-        #     self.run()
-
-    # def run(self):
-    #     try:
-    #         try:
-    #             trio.run(self._main_loop)
-    #         except KeyboardInterrupt:
-    #             # self.logger.debug("Caught KeyboardInterrupt, shutting down")
-    #             print("Caught KeyboardInterrupt, shutting down")
-    #     except Exception as e:
-    #         # self.logger.error(f"Consensus run exception: {e}", exc_info=True)
-    #         print(f"Consensus run exception: {e}")
-
     async def _main_loop(self):
         if not await self.run_activate_subnet():
             return
@@ -83,37 +69,24 @@ class Consensus:
 
         In production: We use the blockchain to get the list of all peer IDs
         """
-        peer_ids = [
-            "12D3KooWAkRWUdmXy5tkGQ1oUKxx2W4sXxsWr4ekrcvLCbA3BQTf",  # Alith
-            "12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF",  # Baltathar
-            "12D3KooWBqJu85tnb3WciU3LcXhCmTdkvMi4k1Zq3BshUPhVfTui",  # Charleth
-        ]
-
-        retrieved_peer_ids = []
-        for base58_peer_id in peer_ids:
-            peer_id = PeerID.from_base58(base58_peer_id)
-            key = f"/pk/{peer_id.to_bytes().hex()}"
-            retrieved_value = await self.dht.get_value(key)
-            if retrieved_value is not None:
-                retrieved_peer_ids.append(base58_peer_id)
-
-        print("Retrieved peer IDs: ", retrieved_peer_ids)
-
-        # Get all included nodes
-        if self.hypertensor is None:
-            # self.logger.warning("Hypertensor RPC node required to get node scores")
-            print("Hypertensor RPC node required to get node scores")
-            return []
-
         # Get each subnet node ID that is included onchain AND in the subnet
         included_nodes = self.hypertensor.get_min_class_subnet_nodes_formatted(
             self.subnet_id, current_epoch, SubnetNodeClass.Included
         )
-        subnet_node_ids = [
-            n.subnet_node_id for n in included_nodes if n.peer_id in retrieved_peer_ids
-        ]
 
-        print("Included nodes: ", subnet_node_ids)
+        print("Included nodes: ", included_nodes)
+
+        subnet_node_ids = []
+        for node in included_nodes:
+            peer_id = PeerID.from_base58(node.peer_id)
+            key = f"/pk/{peer_id.to_bytes().hex()}"
+            retrieved_value = await self.dht.get_value(key)
+            if retrieved_value is not None:
+                subnet_node_ids.append(node.subnet_node_id)
+            else:
+                print(f"Node not found: {node.subnet_node_id}, peer ID: {node.peer_id}")
+
+        print("Subnet node IDs: ", subnet_node_ids)
 
         """
             {
@@ -133,6 +106,69 @@ class Consensus:
         print("Consensus score list: ", consensus_score_list)
 
         return consensus_score_list
+
+    # async def get_scores(self, current_epoch: int) -> List[SubnetNodeConsensusData]:
+    #     """
+    #     Fill in a way to get scores on each node
+
+    #     These scores must be deterministic - See docs
+    #     """
+    #     """
+    #     It's impossible to get every Peer ID in the (a large) network so we test using
+    #     the test IDs to get the heartbeat
+
+    #     In production: We use the blockchain to get the list of all peer IDs
+    #     """
+    #     peer_ids = [
+    #         "12D3KooWAkRWUdmXy5tkGQ1oUKxx2W4sXxsWr4ekrcvLCbA3BQTf",  # Alith
+    #         "12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF",  # Baltathar
+    #         "12D3KooWBqJu85tnb3WciU3LcXhCmTdkvMi4k1Zq3BshUPhVfTui",  # Charleth
+    #     ]
+
+    #     retrieved_peer_ids = []
+    #     for base58_peer_id in peer_ids:
+    #         peer_id = PeerID.from_base58(base58_peer_id)
+    #         key = f"/pk/{peer_id.to_bytes().hex()}"
+    #         retrieved_value = await self.dht.get_value(key)
+    #         if retrieved_value is not None:
+    #             retrieved_peer_ids.append(base58_peer_id)
+
+    #     print("Retrieved peer IDs: ", retrieved_peer_ids)
+
+    #     # Get all included nodes
+    #     if self.hypertensor is None:
+    #         # self.logger.warning("Hypertensor RPC node required to get node scores")
+    #         print("Hypertensor RPC node required to get node scores")
+    #         return []
+
+    #     # Get each subnet node ID that is included onchain AND in the subnet
+    #     included_nodes = self.hypertensor.get_min_class_subnet_nodes_formatted(
+    #         self.subnet_id, current_epoch, SubnetNodeClass.Included
+    #     )
+    #     subnet_node_ids = [
+    #         n.subnet_node_id for n in included_nodes if n.peer_id in retrieved_peer_ids
+    #     ]
+
+    #     print("Included nodes: ", subnet_node_ids)
+
+    #     """
+    #         {
+    #             "subnet_node_id": int,
+    #             "score": int
+    #         }
+
+    #         Is the expected format on-chain
+
+    #         We use asdict() when submitting
+    #     """
+    #     consensus_score_list = [
+    #         SubnetNodeConsensusData(subnet_node_id=node_id, score=int(1e18))
+    #         for node_id in subnet_node_ids
+    #     ]
+
+    #     print("Consensus score list: ", consensus_score_list)
+
+    #     return consensus_score_list
 
     async def run_activate_subnet(self):
         """
@@ -379,9 +415,6 @@ class Consensus:
         print(f"[Consensus] epoch: {current_epoch}")
 
         scores = await self.get_scores(current_epoch)
-
-        # self.logger.info(f"Scores: {scores}")
-        print(f"Scores: {scores}")
 
         if scores is None:
             return

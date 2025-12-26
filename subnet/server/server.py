@@ -48,6 +48,7 @@ from libp2p.security.insecure.transport import (
     PLAINTEXT_PROTOCOL_ID,
     InsecureTransport,
 )
+from subnet.utils.bootstrap import connect_to_bootstrap_nodes
 
 from subnet.protocols.mock_protocol import (
     MockProtocol,
@@ -212,28 +213,6 @@ class Server:
         except Exception as e:
             logger.error(f"Server node error: {e}", exc_info=True)
             sys.exit(1)
-
-
-# function to take bootstrap_nodes as input and connects to them
-async def connect_to_bootstrap_nodes(host: IHost, bootstrap_addrs: list[str]) -> None:
-    """
-    Connect to the bootstrap nodes provided in the list.
-
-    params: host: The host instance to connect to
-            bootstrap_addrs: List of bootstrap node addresses
-
-    Returns
-    -------
-        None
-
-    """
-    for addr in bootstrap_addrs:
-        try:
-            peerInfo = info_from_p2p_addr(Multiaddr(addr))
-            host.get_peerstore().add_addrs(peerInfo.peer_id, peerInfo.addrs, 300)
-            await host.connect(peerInfo)
-        except Exception as e:
-            logger.error(f"Failed to connect to bootstrap node {addr}: {e}")
 
 
 async def heartbeat(dht: KadDHT, key: bytes, value):

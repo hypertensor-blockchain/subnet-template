@@ -28,6 +28,7 @@ dependencies = [
     "tenacity>=8.2.3",
     "multiaddr==0.0.11",
     "pymultihash==0.8.2",
+    "python-dotenv>=1.0.1",
 ]
 
 [project.optional-dependencies]
@@ -74,6 +75,9 @@ run_bootnode_v2 = "subnet.cli.run_bootnode_v2:main"
 run_node_v2 = "subnet.cli.run_node_v2:main"
 run_kad_dht = "subnet.cli.run_kad_dht:main"
 keygen = "subnet.cli.crypto.keygen:main"
+register_subnet = "subnet.cli.hypertensor.subnet.register:main"
+activate_subnet = "subnet.cli.hypertensor.subnet.activate:main"
+register_node = "subnet.cli.hypertensor.node.register:main"
 
 [tool.setuptools]
 packages = ["subnet"]
