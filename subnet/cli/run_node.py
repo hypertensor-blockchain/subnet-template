@@ -5,19 +5,25 @@ import logging
 import sys
 import os
 from pathlib import Path
+import secrets
 
 import trio
 
-from subnet.server.server_v2 import Server
+from libp2p.crypto.ed25519 import (
+    create_new_key_pair,
+)
+from subnet.server.server import Server
 import random
 from subnet.hypertensor.mock.local_chain_functions import LocalMockHypertensor
 from subnet.hypertensor.chain_functions import Hypertensor, KeypairFrom
 from libp2p.crypto.keys import KeyPair
 from libp2p.peer.pb import crypto_pb2
 from libp2p.crypto.ed25519 import Ed25519PrivateKey
+from libp2p.crypto.secp256k1 import Secp256k1PrivateKey
 from libp2p.peer.id import ID as PeerID
 from substrateinterface import Keypair as SubstrateKeypair, KeypairType
 from dotenv import load_dotenv
+from subnet.db.database import RocksDB
 
 load_dotenv(os.path.join(Path.cwd(), ".env"))
 
@@ -40,20 +46,49 @@ def parse_args() -> argparse.Namespace:
         epilog="""
 Examples:
   # Run a standalone node
-  python -m subnet.cli.run_node
+  python -m subnet.cli.run_node_gossip
 
   # Run a node connecting to bootstrap peers
-  python -m subnet.cli.run_node --bootstrap /ip4/127.0.0.1/tcp/31330/p2p/QmBootstrapPeerID
+  python -m subnet.cli.run_node_gossip --bootstrap /ip4/127.0.0.1/tcp/31330/p2p/QmBootstrapPeerID
 
   # Connect to multiple bootstrap peers
-  python -m subnet.cli.run_node \\
+  python -m subnet.cli.run_node_gossip \\
     --bootstrap /ip4/192.168.1.100/tcp/31330/p2p/QmPeer1 \\
     --bootstrap /ip4/192.168.1.101/tcp/31330/p2p/QmPeer2
 
   # Run a node with an identity file
-  python -m subnet.cli.run_node --identity_path alith-ed25519.key --port 38960 --bootstrap /ip4/127.0.0.1/tcp/38959/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF --subnet_id 1 --subnet_node_id 1 --no_blockchain_rpc
-  python -m subnet.cli.run_node --identity_path baltathar-ed25519.key --port 38961 --bootstrap /ip4/127.0.0.1/tcp/38959/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF --subnet_id 1 --subnet_node_id 2 --no_blockchain_rpc
-  python -m subnet.cli.run_node --identity_path charleth-ed25519.key --port 38962 --bootstrap /ip4/127.0.0.1/tcp/38959/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF --subnet_id 1 --subnet_node_id 3 --no_blockchain_rpc
+python -m subnet.cli.run_node_gossip \
+--private_key_path alith-ed25519.key \
+--port 38960 \
+--bootstrap /ip4/127.0.0.1/tcp/38990/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
+--subnet_id 1 \
+--subnet_node_id 1 \
+--no_blockchain_rpc
+
+python -m subnet.cli.run_node_gossip \
+--private_key_path baltathar-ed25519.key \
+--port 38961 \
+--bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWAkRWUdmXy5tkGQ1oUKxx2W4sXxsWr4ekrcvLCbA3BQTf \
+--subnet_id 1 \
+--subnet_node_id 2 \
+--no_blockchain_rpc
+
+python -m subnet.cli.run_node_gossip \
+--private_key_path charleth-ed25519.key \
+--port 38962 \
+--bootstrap /ip4/127.0.0.1/tcp/38990/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWAkRWUdmXy5tkGQ1oUKxx2W4sXxsWr4ekrcvLCbA3BQTf /ip4/127.0.0.1/tcp/38961/p2p/12D3KooWBqJu85tnb3WciU3LcXhCmTdkvMi4k1Zq3BshUPhVfTui \
+--subnet_id 1 \
+--subnet_node_id 3 \
+--no_blockchain_rpc
+
+python -m subnet.cli.run_node_gossip \
+--private_key_path charleth-ed25519.key \
+--port 38962 \
+--bootstrap /ip4/127.0.0.1/tcp/38961/p2p/12D3KooWBqJu85tnb3WciU3LcXhCmTdkvMi4k1Zq3BshUPhVfTui \
+--subnet_id 1 \
+--subnet_node_id 3 \
+--no_blockchain_rpc
+
         """,
     )
 
@@ -80,7 +115,14 @@ Examples:
     )
 
     parser.add_argument(
-        "--identity_path", type=str, default=None, help="Path to the identity file. "
+        "--base_path", type=str, default=None, help="Specify custom base path"
+    )
+
+    parser.add_argument(
+        "--private_key_path",
+        type=str,
+        default=None,
+        help="Path to the private key file. ",
     )
 
     parser.add_argument(
@@ -151,12 +193,28 @@ def main() -> None:
     else:
         logger.info("Running as standalone node (no bootstrap peers)")
 
-    with open(f"{args.identity_path}", "rb") as f:
-        data = f.read()
-    private_key = crypto_pb2.PrivateKey.FromString(data)
-    ed25519_private_key = Ed25519PrivateKey.from_bytes(private_key.Data)
-    public_key = ed25519_private_key.get_public_key()
-    key_pair = KeyPair(ed25519_private_key, public_key)
+    if args.private_key_path is None:
+        key_pair = create_new_key_pair(secrets.token_bytes(32))
+    else:
+        with open(f"{args.private_key_path}", "rb") as f:
+            data = f.read()
+        private_key = crypto_pb2.PrivateKey.FromString(data)
+        if private_key.Type == crypto_pb2.KeyType.Ed25519:
+            private_key = Ed25519PrivateKey.from_bytes(private_key.Data)
+        elif private_key.Type == crypto_pb2.KeyType.Secp256k1:
+            private_key = Secp256k1PrivateKey.from_bytes(private_key.Data)
+        else:
+            raise ValueError("Unsupported key type")
+
+    public_key = private_key.get_public_key()
+    key_pair = KeyPair(private_key, public_key)
+
+    if not args.base_path:
+        base_path = f"/tmp/{random.randint(100, 1000000)}"
+    else:
+        base_path = args.base_path
+
+    db = RocksDB(base_path, args.subnet_id)
 
     hotkey = None
     start_epoch = None
@@ -205,6 +263,7 @@ def main() -> None:
             raise Exception("Subnet node start epoch is None")
     else:
         # Run mock hypertensor blockchain for testing
+        # This is a shared database between all local nodes
         hypertensor = LocalMockHypertensor(
             subnet_id=args.subnet_id,
             peer_id=PeerID.from_pubkey(key_pair.public_key),
@@ -221,6 +280,7 @@ def main() -> None:
             port=port,
             bootstrap_addrs=args.bootstrap,
             key_pair=key_pair,
+            db=db,
             subnet_id=args.subnet_id,
             subnet_node_id=args.subnet_node_id,
             hypertensor=hypertensor,

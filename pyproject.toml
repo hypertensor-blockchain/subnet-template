@@ -29,6 +29,7 @@ dependencies = [
     "multiaddr==0.0.11",
     "pymultihash==0.8.2",
     "python-dotenv>=1.0.1",
+    "rocksdict>=0.3.27",
 ]
 
 [project.optional-dependencies]

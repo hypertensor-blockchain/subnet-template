@@ -407,6 +407,69 @@ class LocalMockHypertensor:
             )
             return []
 
+    def get_subnet_nodes_info_formatted(self, subnet_id: int) -> List["SubnetNodeInfo"]:
+        """
+        Return all subnet nodes formatted.
+        """
+        try:
+            subnet_nodes = self.db.get_all_subnet_nodes(subnet_id)
+            qualified_nodes = []
+
+            for node_dict in subnet_nodes:
+                classification_data = node_dict.get("classification", {})
+
+                if isinstance(classification_data, str):
+                    try:
+                        classification = json.loads(classification_data)
+                    except json.JSONDecodeError:
+                        classification = {}
+                else:
+                    classification = classification_data
+
+                qualified_nodes.append(
+                    SubnetNodeInfo(
+                        subnet_id=self.subnet_id,
+                        subnet_node_id=node_dict["subnet_node_id"],
+                        coldkey=node_dict["coldkey"],
+                        hotkey=node_dict["hotkey"],
+                        peer_id=node_dict["peer_id"],
+                        bootnode_peer_id=node_dict["bootnode_peer_id"],
+                        client_peer_id=node_dict["client_peer_id"],
+                        bootnode=node_dict["bootnode"],
+                        identity=node_dict["identity"],
+                        classification=classification,
+                        delegate_reward_rate=0,
+                        last_delegate_reward_rate_update=0,
+                        unique=node_dict["unique"],
+                        non_unique=node_dict["non_unique"],
+                        stake_balance=int(node_dict.get("stake_balance", 0)),
+                        total_node_delegate_stake_shares=int(
+                            node_dict.get("total_node_delegate_stake_shares", 0)
+                        ),
+                        node_delegate_stake_balance=int(
+                            node_dict.get("node_delegate_stake_balance", 0)
+                        ),
+                        coldkey_reputation=int(node_dict.get("coldkey_reputation", 0)),
+                        subnet_node_reputation=int(
+                            node_dict.get("subnet_node_reputation", 0)
+                        ),
+                        node_slot_index=int(node_dict.get("node_slot_index", 0)),
+                        consecutive_idle_epochs=int(
+                            node_dict.get("consecutive_idle_epochs", 0)
+                        ),
+                        consecutive_included_epochs=int(
+                            node_dict.get("consecutive_included_epochs", 0)
+                        ),
+                    )
+                )
+
+            return qualified_nodes
+        except Exception as e:
+            logger.warning(
+                f"[WARN] get_min_class_subnet_nodes_formatted error: {e}", exc_info=True
+            )
+            return []
+
     def get_validators_and_attestors(
         self,
         subnet_id: int,
