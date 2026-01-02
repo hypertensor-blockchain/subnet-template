@@ -1,14 +1,17 @@
 import logging
-import trio
+
 import base58
-from subnet.db.database import RocksDB
-from libp2p.pubsub.gossipsub import GossipSub
-from libp2p.pubsub.pubsub import Pubsub
+import trio
+
 from libp2p.abc import ISubscriptionAPI
+from libp2p.pubsub.gossipsub import GossipSub
 from libp2p.pubsub.pb import rpc_pb2
-from libp2p.peer.id import ID as PeerID
-from subnet.utils.subnet_info_tracker import SubnetInfoTracker
+from libp2p.pubsub.pubsub import Pubsub
+from subnet.db.database import RocksDB
+from subnet.hypertensor.chain_functions import Hypertensor
+from subnet.hypertensor.mock.local_chain_functions import LocalMockHypertensor
 from subnet.utils.heartbeat import HEARTBEAT_TOPIC, HeartbeatData
+from subnet.utils.subnet_info_tracker import SubnetInfoTracker
 
 logging.basicConfig(
     level=logging.INFO,
@@ -21,13 +24,14 @@ class GossipReceiver:
     """
     Manages receiving gossip messages and logic for storing in the base path db
 
-    Parameters:
+    Params:
         gossipsub: GossipSub instance
         pubsub: Pubsub instance
         termination_event: trio.Event to signal termination
         db: RocksDB instance
         topics: list of topic strings
         subnet_info_tracker: SubnetInfoTracker instance
+        hypertensor: LocalMockHypertensor | Hypertensor instance
 
     Usage:
         gossip = GossipReceiver(
@@ -37,13 +41,16 @@ class GossipReceiver:
             db,
             [HEARTBEAT_TOPIC, "commit", "reveal", "custom"],
             subnet_info_tracker,
+            hypertensor,
         )
         nursery.start_soon(gossip.run)  # Starts sync loop + receive loops
 
     Validating database entries:
-        Create a function or class specific for validating pubsub messages based on the topic
+        Create a function or class specific for validating pubsub messages based on the
+        topic.
 
         See `_handle_*` functions for examples
+
     """
 
     def __init__(
@@ -54,6 +61,7 @@ class GossipReceiver:
         db: RocksDB,
         topics: list[str],
         subnet_info_tracker: SubnetInfoTracker,
+        hypertensor: LocalMockHypertensor | Hypertensor,
     ):
         self.gossipsub = gossipsub
         self.pubsub = pubsub
@@ -61,6 +69,7 @@ class GossipReceiver:
         self.db = db
         self.topics = topics
         self.subnet_info_tracker = subnet_info_tracker
+        self.hypertensor = hypertensor
         self._last_epoch: int | None = None
         self._seen_heartbeats: set[str] = set()  # e.g.: "epoch:peer_id"
 
@@ -88,7 +97,6 @@ class GossipReceiver:
         while not self.termination_event.is_set():
             try:
                 message = await subscription.get()
-                logger.info(f"Received topicIDs: {message.topicIDs}")
                 await self._handle_message(message)
 
             except Exception:
@@ -120,50 +128,37 @@ class GossipReceiver:
 
     async def _handle_heartbeat(self, message: rpc_pb2.Message, from_peer: str) -> None:
         """Store heartbeat message if not already stored for this epoch."""
-        if self.subnet_info_tracker.epoch_data is None:
-            logger.warning("epoch_data not yet synced, skipping heartbeat")
-            return
+        # if self.subnet_info_tracker.epoch_data is None:
+        #     logger.warning("epoch_data not yet synced, skipping heartbeat")
+        #     return
 
-        epoch = self.subnet_info_tracker.epoch_data.epoch
+        # epoch = self.subnet_info_tracker.epoch_data.epoch
+        epoch = self.hypertensor.get_subnet_epoch_data(
+            self.subnet_info_tracker.slot
+        ).epoch
 
         # Clear cache on epoch change
         if self._last_epoch != epoch:
             logger.info(
-                f"Clearing heartbeat cache for epoch change: {self._last_epoch} -> {epoch}"
+                f"Clearing heartbeat cache for epoch change: {self._last_epoch} -> {epoch}"  # noqa: E501
             )
             self._seen_heartbeats.clear()
             self._last_epoch = epoch
 
         key = f"{epoch}:{from_peer}"
 
+        heartbeat_data = HeartbeatData.from_json(message.data.decode("utf-8"))
+
         # Fast in-memory check
         if key in self._seen_heartbeats:
             logger.info(f"Heartbeat already seen (cached): {key}")
-            logger.info(f"Duplicate heartbeat from {from_peer}, penalizing")
-            peer_id = PeerID.from_base58(from_peer)
-            self.gossipsub.scorer.penalize_behavior(peer_id, amount=1.0)
-
-            # peer_curr_score = self.gossipsub.scorer.topic_score(
-            #     peer_id, HEARTBEAT_TOPIC
-            # )
-            peer_curr_score = self.gossipsub.scorer.score(peer_id, [HEARTBEAT_TOPIC])
-
-            logger.info(f"Peer {peer_id} current score: {peer_curr_score}")
-
-            peer_score_stats = self.gossipsub.scorer.get_score_stats(
-                peer_id, HEARTBEAT_TOPIC
-            )
-            logger.info(f"Peer {peer_id} score stats: {peer_score_stats}")
             return
 
         # Check if epoch matches
-        heartbeat_data = HeartbeatData.from_json(message.data.decode("utf-8"))
         if heartbeat_data.epoch != epoch:
             logger.info(
-                f"Heartbeat epoch does not match: {key}, heartbeat epoch={heartbeat_data.epoch}, current epoch={epoch}"
+                f"Heartbeat epoch does not match: {key}, heartbeat epoch={heartbeat_data.epoch}, current epoch={epoch}, node ID={heartbeat_data.subnet_node_id}"  # noqa: E501
             )
-            print("Heartbeat epoch type", type(heartbeat_data.epoch))
-            print("Epoch type", type(epoch))
             return
 
         # Check if already exists
@@ -173,7 +168,9 @@ class GossipReceiver:
 
         # Store it
         self.db.nmap_set(HEARTBEAT_TOPIC, key, message.data.decode("utf-8"))
-        logger.info(f"Heartbeat stored: {HEARTBEAT_TOPIC}:{key}")
+        logger.info(
+            f"Heartbeat stored: {HEARTBEAT_TOPIC}:{key} for node ID {heartbeat_data.subnet_node_id}"  # noqa: E501
+        )
 
         # Add to in-memory set
         self._seen_heartbeats.add(key)
@@ -209,7 +206,10 @@ class GossipReceiver:
             return
         """
 
-    """Handle custom message (create your own validation functions for storing messages in the database)"""
+    """
+    Handle custom message
+    (create your own validation functions for storing messages in the database)
+    """
 
     async def _handle_custom(self, message: rpc_pb2.Message, from_peer: str) -> None:
         if self.subnet_info_tracker.epoch_data is None:

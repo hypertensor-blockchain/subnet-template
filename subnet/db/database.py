@@ -146,6 +146,7 @@ class RocksDB:
             # Retrieve using the same composite key pattern:
             db.nmap_get('heartbeats', 'subnet_1:node_5')
             db.nmap_get('metrics', 'subnet_1:node_5:epoch_100')
+
         """
         composite_key = self._make_nmap_key(nmap, key)
         self.store[composite_key] = value
@@ -179,6 +180,7 @@ class RocksDB:
 
             missing = db.nmap_get('users', 'charlie', default={})
             # Returns: {} (the default)
+
         """
         composite_key = self._make_nmap_key(nmap, key)
         try:
@@ -200,6 +202,7 @@ class RocksDB:
         Example:
             deleted = db.nmap_delete('users', 'alice')
             # Returns: True (if alice existed)
+
         """
         composite_key = self._make_nmap_key(nmap, key)
         try:
@@ -224,6 +227,7 @@ class RocksDB:
 
             all_users = db.nmap_get_all('users')
             # Returns: {'alice': {'age': 30}, 'bob': {'age': 25}}
+
         """
         prefix = f"nmap{self.SEPARATOR}{nmap}{self.SEPARATOR}"
         results = {}
@@ -247,6 +251,7 @@ class RocksDB:
         Example:
             if db.nmap_exists('users', 'alice'):
                 print('Alice is in the users map')
+
         """
         composite_key = self._make_nmap_key(nmap, key)
         return composite_key in self.store
@@ -267,13 +272,10 @@ class RocksDB:
 
             deleted_count = db.nmap_clear('temp')
             # Returns: 2 (both entries deleted)
+
         """
         prefix = f"nmap{self.SEPARATOR}{nmap}{self.SEPARATOR}"
-        keys_to_delete = [
-            key
-            for key in self.store.keys()
-            if isinstance(key, str) and key.startswith(prefix)
-        ]
+        keys_to_delete = [key for key in self.store.keys() if isinstance(key, str) and key.startswith(prefix)]
         for key in keys_to_delete:
             del self.store[key]
         return len(keys_to_delete)

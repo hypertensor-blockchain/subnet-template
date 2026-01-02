@@ -1,11 +1,12 @@
+from typing import Callable
+
 import multihash
 
 from libp2p.peer.id import ID
+from libp2p.records.pubkey import PublicKeyValidator, unmarshal_public_key
 from libp2p.records.utils import InvalidRecordType, split_key
 from libp2p.records.validator import Validator
-from libp2p.records.pubkey import PublicKeyValidator, unmarshal_public_key
 from subnet.hypertensor.chain_functions import EpochData
-from typing import Callable
 
 
 class PredicateValidator(Validator):
@@ -19,14 +20,13 @@ class PredicateValidator(Validator):
         self.record_predicate = record_predicate
 
     @classmethod
-    def from_predicate_class(
-        cls, predicate_cls: type, *args, **kwargs
-    ) -> "PredicateValidator":
+    def from_predicate_class(cls, predicate_cls: type, *args, **kwargs) -> "PredicateValidator":
         """
         Example:
             PredicateValidator.from_predicate_class(
                 CommitReveal, Hypertensor(), subnet_id
             )
+
         """
         predicate = predicate_cls(*args, **kwargs)
         return cls(record_predicate=predicate)

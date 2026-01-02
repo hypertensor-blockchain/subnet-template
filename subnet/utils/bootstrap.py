@@ -1,8 +1,9 @@
-from libp2p.abc import IHost
-from libp2p.tools.utils import info_from_p2p_addr
+import logging
+
 from multiaddr import Multiaddr
 
-import logging
+from libp2p.abc import IHost
+from libp2p.tools.utils import info_from_p2p_addr
 
 # Configure logging
 logging.basicConfig(

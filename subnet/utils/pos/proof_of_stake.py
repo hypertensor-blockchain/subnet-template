@@ -1,10 +1,9 @@
+import logging
+import time
 from typing import Dict
 
-from subnet.hypertensor.chain_functions import Hypertensor
 from libp2p.peer.id import ID as PeerID
-import time
-
-import logging
+from subnet.hypertensor.chain_functions import Hypertensor
 
 # Configure logging
 logging.basicConfig(
@@ -36,18 +35,18 @@ class ProofOfStake:
         return self.peer_id_to_last_successful_pos.get(peer_id, 0)
 
     def update_peer_id_success(self, peer_id: PeerID):
-        self.peer_id_to_last_successful_pos[peer_id] = str(time.time)
+        self.peer_id_to_last_successful_pos[peer_id] = time.time()
         self.peer_id_to_last_failed_pos.pop(peer_id, None)
 
     def get_peer_id_last_fail(self, peer_id: PeerID) -> float:
         return self.peer_id_to_last_failed_pos.get(peer_id, 0)
 
     def update_peer_id_fail(self, peer_id: PeerID):
-        self.peer_id_to_last_failed_pos[peer_id] = str(time.time)
+        self.peer_id_to_last_failed_pos[peer_id] = time.time()
         self.peer_id_to_last_successful_pos.pop(peer_id, None)
 
     def proof_of_stake(self, peer_id: PeerID) -> bool:
-        now = str(time.time)
+        now = time.time()
 
         # Recently failed — reject immediately
         last_fail = self.get_peer_id_last_fail(peer_id)

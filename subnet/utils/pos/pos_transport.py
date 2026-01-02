@@ -1,9 +1,8 @@
-from libp2p.abc import IRawConnection, ISecureConn
+from libp2p.abc import IRawConnection, ISecureConn, TProtocol
 from libp2p.peer.id import ID
 from libp2p.security.noise.transport import Transport as NoiseTransport
-from subnet.network.pos.proof_of_stake import ProofOfStake
-from subnet.network.pos.exceptions import InvalidProofOfStake
-from libp2p.abc import TProtocol
+from subnet.utils.pos.exceptions import InvalidProofOfStake
+from subnet.utils.pos.proof_of_stake import ProofOfStake
 
 PROTOCOL_ID = TProtocol("/pos/1.0.0")
 
@@ -23,7 +22,7 @@ class POSTransport:
         Secure an inbound connection (when another peer connects to you).
         Implement your authentication/validation logic here.
 
-        returns:
+        Returns:
             ISecureConn
 
             Example return:
@@ -35,6 +34,7 @@ class POSTransport:
                     is_initiator=False,
                     conn=transport_read_writer,
                 )
+
         """
         print("POSTransport secure_inbound")
         noise_secure_inbound = await self.noise_transport.secure_inbound(conn)
@@ -50,9 +50,7 @@ class POSTransport:
             ):
                 raise InvalidProofOfStake
 
-        print(
-            f"POSTransport inbound pos successful for {noise_secure_inbound.remote_peer}"
-        )
+        print(f"POSTransport inbound pos successful for {noise_secure_inbound.remote_peer}")
 
         return noise_secure_inbound
 
@@ -61,7 +59,7 @@ class POSTransport:
         Secure an outbound connection (when you connect to another peer).
         Implement your request signing/authentication logic here.
 
-        returns:
+        Returns:
             ISecureConn
 
             Example return:
@@ -73,11 +71,10 @@ class POSTransport:
                     is_initiator=True,
                     conn=transport_read_writer,
                 )
+
         """
         print("POSTransport secure_outbound")
-        noise_secure_outbound = await self.noise_transport.secure_outbound(
-            conn, peer_id
-        )
+        noise_secure_outbound = await self.noise_transport.secure_outbound(conn, peer_id)
         print("POSTransport noise_secure_outbound", noise_secure_outbound)
         print(
             "POSTransport noise_secure_outbound remote_peer",
@@ -90,9 +87,7 @@ class POSTransport:
             ):
                 raise InvalidProofOfStake
 
-        print(
-            f"POSTransport outbound pos successful for {noise_secure_outbound.remote_peer}"
-        )
+        print(f"POSTransport outbound pos successful for {noise_secure_outbound.remote_peer}")
 
         return noise_secure_outbound
 

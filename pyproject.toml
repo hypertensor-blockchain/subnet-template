@@ -100,8 +100,17 @@ addopts = [
 ]
 
 [tool.ruff]
-line-length = 88
+line-length = 120
 exclude = ["__init__.py", "*_pb2*.py", "*.pyi"]
+
+[tool.ruff.lint]
+select = [
+    "F", # Pyflakes
+    "E", # pycodestyle errors
+    "W", # pycodestyle warnings
+    "I", # isort
+    "D", # pydocstyle
+]
 
 # Ignores from pydocstyle and any other desired ones
 ignore = [

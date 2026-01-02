@@ -1,7 +1,8 @@
-# import asyncio
-# import multiprocessing as mp
 from dataclasses import asdict
+import logging
 from typing import List
+
+import trio
 
 from libp2p.kad_dht import KadDHT
 from libp2p.peer.id import ID as PeerID
@@ -10,13 +11,11 @@ from subnet.consensus.utils import (
     did_node_attest,
     is_validator_or_attestor,
 )
+from subnet.db.database import RocksDB
 from subnet.hypertensor.chain_data import SubnetNodeConsensusData
 from subnet.hypertensor.chain_functions import Hypertensor, SubnetNodeClass
 from subnet.hypertensor.config import BLOCK_SECS
 from subnet.hypertensor.mock.local_chain_functions import LocalMockHypertensor
-import trio
-import logging
-from subnet.db.database import RocksDB
 from subnet.utils.heartbeat import HEARTBEAT_TOPIC
 from subnet.utils.subnet_info_tracker import SubnetInfoTracker
 
@@ -89,6 +88,9 @@ class Consensus:
                 is not None
             )
             if not exists:
+                logger.info(
+                    f"Heartbeat does not exist for node ID {node.subnet_node_id} for epoch {current_epoch - 1}"
+                )
                 continue
 
             subnet_node_ids.append(node.subnet_node_id)
@@ -168,7 +170,12 @@ class Consensus:
                 last_epoch = current_epoch
 
             logger.info("Waiting for subnet to be activated. Sleeping until next epoch")
-            await trio.sleep(max(0.0, epoch_data.seconds_remaining))
+            await trio.sleep(
+                max(
+                    0.0,
+                    self.subnet_info_tracker.get_seconds_remaining_until_next_epoch(),
+                )
+            )
 
         return subnet_active
 
@@ -188,7 +195,7 @@ class Consensus:
                 await trio.sleep(BLOCK_SECS)
                 continue
 
-            current_epoch = subnet_epoch_data.epoch
+            current_epoch = self.subnet_info_tracker.epoch_data.epoch
 
             if current_epoch != last_epoch:
                 nodes = self.hypertensor.get_min_class_subnet_nodes_formatted(
@@ -217,7 +224,9 @@ class Consensus:
                 last_epoch = current_epoch
 
             await trio.sleep(
-                max(0, self.subnet_info_tracker.epoch_data.seconds_remaining)
+                max(
+                    0, self.subnet_info_tracker.get_seconds_remaining_until_next_epoch()
+                )
             )
 
         return True
@@ -236,32 +245,40 @@ class Consensus:
         while not self.stop.is_set() and not self._async_stop_event.is_set():
             try:
                 subnet_epoch_data = self.subnet_info_tracker.epoch_data
-
                 if subnet_epoch_data is None:
+                    logger.info("Waiting for subnet epoch data")
                     await trio.sleep(BLOCK_SECS)
                     continue
 
                 # Start on fresh epoch
                 if started is False:
                     started = True
-                    try:
-                        logger.info(
-                            f"Starting consensus on next epoch in {subnet_epoch_data.seconds_remaining}s"
-                        )
-                        with trio.move_on_after(subnet_epoch_data.seconds_remaining):
-                            await self._async_stop_event.wait()
-                            break  # Stop event was set (if wait returns, event is set)
-                        # If we get here without break, it timed out or fell through, handled by checking event or loop
-                        if self._async_stop_event.is_set():
-                            break
-                        continue  # Timeout reached
-                    except Exception:  # trio.move_on_after doesn't raise TimeoutError
-                        continue
+                    subnet_epoch_data = self.hypertensor.get_subnet_epoch_data(
+                        self.subnet_info_tracker.slot
+                    )
+                    logger.info(
+                        f"SubnetInfoTracker seconds remaining {self.subnet_info_tracker.get_seconds_remaining_until_next_epoch()}"
+                    )
+                    logger.info(
+                        f"Current epoch is {subnet_epoch_data.epoch}.  "
+                        f"Starting consensus on next epoch in {subnet_epoch_data.seconds_remaining}s"
+                    )
+                    await trio.sleep(subnet_epoch_data.seconds_remaining)
                 elif not logged_started:
                     logger.info("✅ Starting consensus")
                     logged_started = True
 
-                current_epoch = subnet_epoch_data.epoch
+                # current_epoch = self.subnet_info_tracker.epoch_data.epoch
+                current_epoch = self.hypertensor.get_subnet_epoch_data(
+                    self.subnet_info_tracker.slot
+                ).epoch
+
+                logger.info(
+                    f"SubnetInfoTracker current_epoch {self.subnet_info_tracker.epoch_data.epoch}"
+                )
+                logger.info(
+                    f"SubnetInfoTracker seconds_remaining {self.subnet_info_tracker.get_seconds_remaining_until_next_epoch()}"
+                )
 
                 if current_epoch != last_epoch:
                     """
@@ -276,13 +293,23 @@ class Consensus:
                     await self.run_consensus(current_epoch)
 
                 try:
-                    # Get fresh epoch data after processing for `seconds_remaining`
-                    subnet_epoch_data = self.subnet_info_tracker.epoch_data
+                    # Get fresh epoch
+                    subnet_epoch_data = self.hypertensor.get_subnet_epoch_data(
+                        self.subnet_info_tracker.slot
+                    )
+
                     logger.info(
-                        f"Sleeping until next epoch for {max(0, subnet_epoch_data.seconds_remaining)}s"
+                        f"Waiting for next epoch {current_epoch + 1} in {subnet_epoch_data.seconds_remaining} seconds"
+                    )
+
+                    logger.info(
+                        f"SubnetInfoTracker seconds remaining {self.subnet_info_tracker.get_seconds_remaining_until_next_epoch()}"
                     )
                     with trio.move_on_after(
-                        max(0, subnet_epoch_data.seconds_remaining)
+                        max(
+                            1.0,
+                            subnet_epoch_data.seconds_remaining,
+                        )
                     ):
                         await self._async_stop_event.wait()
                         break
@@ -326,8 +353,14 @@ class Consensus:
         # Wait until validator is chosen
         while not self.stop.is_set():
             validator = self.get_validator(current_epoch)
-            subnet_epoch_data = self.subnet_info_tracker.epoch_data
+            # subnet_epoch_data = self.subnet_info_tracker.epoch_data
+            # _current_epoch = subnet_epoch_data.epoch
+
+            subnet_epoch_data = self.hypertensor.get_subnet_epoch_data(
+                self.subnet_info_tracker.slot
+            )
             _current_epoch = subnet_epoch_data.epoch
+
             if _current_epoch != current_epoch:
                 validator = None
                 break
@@ -354,6 +387,8 @@ class Consensus:
             consensus_data = self.hypertensor.get_consensus_data_formatted(
                 self.subnet_id, current_epoch
             )
+
+            print("consensus_data: ", consensus_data)
 
             if consensus_data is not None:  # noqa: E711
                 logger.info("Already submitted data, moving to next epoch")
@@ -404,7 +439,11 @@ class Consensus:
 
                 logger.info(f"Consensus data: {consensus_data}")
 
-                subnet_epoch_data = self.subnet_info_tracker.epoch_data
+                # subnet_epoch_data = self.subnet_info_tracker.epoch_data
+                # _current_epoch = subnet_epoch_data.epoch
+                subnet_epoch_data = self.hypertensor.get_subnet_epoch_data(
+                    self.subnet_info_tracker.slot
+                )
                 _current_epoch = subnet_epoch_data.epoch
 
                 # If next epoch or validator took too long, move onto next steps
@@ -490,5 +529,4 @@ class Consensus:
         if not self.stop.is_set():
             self.stop.set()
 
-        # In a trio task, we just set the event. The loops checking self.stop will exit.
         logger.info("Consensus shutdown requested")

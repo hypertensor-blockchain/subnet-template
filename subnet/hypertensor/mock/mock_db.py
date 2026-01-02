@@ -1,7 +1,7 @@
-import sqlite3
+from dataclasses import asdict, is_dataclass
 import json
 import os
-from dataclasses import asdict, is_dataclass
+import sqlite3
 from typing import Optional
 
 DB_FILE = "mock_hypertensor.db"
@@ -91,11 +91,13 @@ class MockDatabase:
     def reset_database(self):
         """Completely wipe the database."""
         if os.path.exists(self.db_path):
+            print(f"Removing database file: {self.db_path}")
             os.remove(self.db_path)
         self._connect()
         self._create_tables()
 
     def insert_subnet_node(self, subnet_id: int, node_info: dict):
+        print(f"Inserting node, subnet_id={subnet_id}, node_info={node_info}")
         classification_json = json.dumps(
             _serialize_for_json(node_info.get("classification", {}))
         )

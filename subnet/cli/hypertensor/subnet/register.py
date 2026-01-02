@@ -1,11 +1,11 @@
 import argparse
+import logging
 import os
 from pathlib import Path
 
 from dotenv import load_dotenv
 
 from subnet.hypertensor.chain_functions import Hypertensor, KeypairFrom
-import logging
 
 load_dotenv(os.path.join(Path.cwd(), ".env"))
 

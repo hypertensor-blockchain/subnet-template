@@ -1,7 +1,7 @@
 import ast
-import json
 from dataclasses import dataclass
 from enum import Enum
+import json
 from typing import Any, Dict, List, Optional, Union
 
 import scalecodec
@@ -339,8 +339,8 @@ def from_scale_encoding(
 
     Returns:
       Optional[Dict]: The decoded data
-    """
 
+    """
     type_string = type_name.name
     if is_option:
         type_string = f"Option<{type_string}>"
@@ -362,6 +362,7 @@ def from_scale_encoding_using_type_string(
 
     Returns:
       Optional[Dict]: The decoded data
+
     """
     if isinstance(input, ScaleBytes):
         as_scale_bytes = input
@@ -389,6 +390,7 @@ def get_runtime_config() -> RuntimeConfiguration:
 
     Returns:
       RuntimeConfiguration: The runtime configuration.
+
     """
     rpc_runtime_config = RuntimeConfiguration()
     rpc_runtime_config.update_type_registry(load_type_registry_preset("legacy"))
@@ -428,7 +430,6 @@ class SubnetData:
     @classmethod
     def from_vec_u8(cls, vec_u8: List[int]) -> "SubnetData":
         """Returns a SubnetData object from a ``vec_u8``."""
-
         if len(vec_u8) == 0:
             return SubnetData._get_null()
 
@@ -444,16 +445,11 @@ class SubnetData:
     @classmethod
     def list_from_vec_u8(cls, vec_u8: List[int]) -> List["SubnetData"]:
         """Returns a list of SubnetData objects from a ``vec_u8``."""
-
-        decoded_list = from_scale_encoding(
-            vec_u8, ChainDataType.SubnetData, is_vec=True
-        )
+        decoded_list = from_scale_encoding(vec_u8, ChainDataType.SubnetData, is_vec=True)
         if decoded_list is None:
             return []
 
-        decoded_list = [
-            SubnetData.fix_decoded_values(decoded) for decoded in decoded_list
-        ]
+        decoded_list = [SubnetData.fix_decoded_values(decoded) for decoded in decoded_list]
         return decoded_list
 
     @staticmethod
@@ -462,10 +458,11 @@ class SubnetData:
         Converts a SubnetData object to a namespace.
 
         Args:
-          rewards_data (SubnetData): The SubnetData object.
+          data (SubnetData): The SubnetData object.
 
         Returns:
           SubnetData: The SubnetData object.
+
         """
         data = SubnetData(**data)
 
@@ -559,27 +556,13 @@ class SubnetInfo:
         data_decoded["min_stake"] = data_decoded["min_stake"]
         data_decoded["max_stake"] = data_decoded["max_stake"]
         data_decoded["queue_immunity_epochs"] = data_decoded["queue_immunity_epochs"]
-        data_decoded["target_node_registrations_per_epoch"] = data_decoded[
-            "target_node_registrations_per_epoch"
-        ]
-        data_decoded["node_registrations_this_epoch"] = data_decoded[
-            "node_registrations_this_epoch"
-        ]
-        data_decoded["subnet_node_queue_epochs"] = data_decoded[
-            "subnet_node_queue_epochs"
-        ]
-        data_decoded["idle_classification_epochs"] = data_decoded[
-            "idle_classification_epochs"
-        ]
-        data_decoded["included_classification_epochs"] = data_decoded[
-            "included_classification_epochs"
-        ]
-        data_decoded["delegate_stake_percentage"] = data_decoded[
-            "delegate_stake_percentage"
-        ]
-        data_decoded["last_delegate_stake_rewards_update"] = data_decoded[
-            "last_delegate_stake_rewards_update"
-        ]
+        data_decoded["target_node_registrations_per_epoch"] = data_decoded["target_node_registrations_per_epoch"]
+        data_decoded["node_registrations_this_epoch"] = data_decoded["node_registrations_this_epoch"]
+        data_decoded["subnet_node_queue_epochs"] = data_decoded["subnet_node_queue_epochs"]
+        data_decoded["idle_classification_epochs"] = data_decoded["idle_classification_epochs"]
+        data_decoded["included_classification_epochs"] = data_decoded["included_classification_epochs"]
+        data_decoded["delegate_stake_percentage"] = data_decoded["delegate_stake_percentage"]
+        data_decoded["last_delegate_stake_rewards_update"] = data_decoded["last_delegate_stake_rewards_update"]
         data_decoded["node_burn_rate_alpha"] = data_decoded["node_burn_rate_alpha"]
         data_decoded["current_node_burn_rate"] = data_decoded["current_node_burn_rate"]
         data_decoded["initial_coldkeys"] = data_decoded["initial_coldkeys"]
@@ -592,56 +575,43 @@ class SubnetInfo:
         data_decoded["key_types"] = data_decoded["key_types"]
         data_decoded["slot_index"] = data_decoded["slot_index"]
         data_decoded["slot_assignment"] = data_decoded["slot_assignment"]
-        data_decoded["subnet_node_min_weight_decrease_reputation_threshold"] = (
-            data_decoded["subnet_node_min_weight_decrease_reputation_threshold"]
-        )
+        data_decoded["subnet_node_min_weight_decrease_reputation_threshold"] = data_decoded[
+            "subnet_node_min_weight_decrease_reputation_threshold"
+        ]
         data_decoded["reputation"] = data_decoded["reputation"]
-        data_decoded["min_subnet_node_reputation"] = data_decoded[
-            "min_subnet_node_reputation"
-        ]
-        data_decoded["absent_decrease_reputation_factor"] = data_decoded[
-            "absent_decrease_reputation_factor"
-        ]
-        data_decoded["included_increase_reputation_factor"] = data_decoded[
-            "included_increase_reputation_factor"
-        ]
+        data_decoded["min_subnet_node_reputation"] = data_decoded["min_subnet_node_reputation"]
+        data_decoded["absent_decrease_reputation_factor"] = data_decoded["absent_decrease_reputation_factor"]
+        data_decoded["included_increase_reputation_factor"] = data_decoded["included_increase_reputation_factor"]
         data_decoded["below_min_weight_decrease_reputation_factor"] = data_decoded[
             "below_min_weight_decrease_reputation_factor"
         ]
         data_decoded["non_attestor_decrease_reputation_factor"] = data_decoded[
             "non_attestor_decrease_reputation_factor"
         ]
-        data_decoded["non_consensus_attestor_decrease_reputation_factor"] = (
-            data_decoded["non_consensus_attestor_decrease_reputation_factor"]
-        )
+        data_decoded["non_consensus_attestor_decrease_reputation_factor"] = data_decoded[
+            "non_consensus_attestor_decrease_reputation_factor"
+        ]
         data_decoded["validator_absent_subnet_node_reputation_factor"] = data_decoded[
             "validator_absent_subnet_node_reputation_factor"
         ]
-        data_decoded["validator_non_consensus_subnet_node_reputation_factor"] = (
-            data_decoded["validator_non_consensus_subnet_node_reputation_factor"]
-        )
+        data_decoded["validator_non_consensus_subnet_node_reputation_factor"] = data_decoded[
+            "validator_non_consensus_subnet_node_reputation_factor"
+        ]
         data_decoded["bootnode_access"] = data_decoded["bootnode_access"]
         data_decoded["bootnodes"] = data_decoded["bootnodes"]
         data_decoded["total_nodes"] = data_decoded["total_nodes"]
         data_decoded["total_active_nodes"] = data_decoded["total_active_nodes"]
         data_decoded["total_electable_nodes"] = data_decoded["total_electable_nodes"]
-        data_decoded["current_min_delegate_stake"] = data_decoded[
-            "current_min_delegate_stake"
-        ]
+        data_decoded["current_min_delegate_stake"] = data_decoded["current_min_delegate_stake"]
         data_decoded["total_subnet_stake"] = data_decoded["total_subnet_stake"]
-        data_decoded["total_subnet_delegate_stake_shares"] = data_decoded[
-            "total_subnet_delegate_stake_shares"
-        ]
-        data_decoded["total_subnet_delegate_stake_balance"] = data_decoded[
-            "total_subnet_delegate_stake_balance"
-        ]
+        data_decoded["total_subnet_delegate_stake_shares"] = data_decoded["total_subnet_delegate_stake_shares"]
+        data_decoded["total_subnet_delegate_stake_balance"] = data_decoded["total_subnet_delegate_stake_balance"]
 
         return cls(**data_decoded)
 
     @classmethod
     def from_vec_u8(cls, vec_u8: List[int]) -> "SubnetInfo":
         """Returns a SubnetInfo object from a ``vec_u8``."""
-
         if len(vec_u8) == 0:
             return SubnetInfo._get_null()
 
@@ -657,17 +627,12 @@ class SubnetInfo:
     @classmethod
     def list_from_vec_u8(cls, vec_u8: List[int]) -> List["SubnetInfo"]:
         """Returns a list of SubnetInfo objects from a ``vec_u8``."""
-
-        decoded_list = from_scale_encoding(
-            vec_u8, ChainDataType.SubnetInfo, is_vec=True
-        )
+        decoded_list = from_scale_encoding(vec_u8, ChainDataType.SubnetInfo, is_vec=True)
 
         if decoded_list is None:
             return []
 
-        decoded_list = [
-            SubnetInfo.fix_decoded_values(decoded) for decoded in decoded_list
-        ]
+        decoded_list = [SubnetInfo.fix_decoded_values(decoded) for decoded in decoded_list]
         return decoded_list
 
     @staticmethod
@@ -676,10 +641,11 @@ class SubnetInfo:
         Converts a SubnetInfo object to a namespace.
 
         Args:
-          rewards_data (SubnetInfo): The SubnetInfo object.
+          data (SubnetInfo): The SubnetInfo object.
 
         Returns:
           SubnetInfo: The SubnetInfo object.
+
         """
         data = SubnetInfo(**data)
 
@@ -758,26 +724,17 @@ class RewardsData:
     @classmethod
     def fix_decoded_values(cls, rewards_data_decoded: Any) -> "RewardsData":
         """Fixes the values of the RewardsData object."""
-        rewards_data_decoded["overall_subnet_reward"] = rewards_data_decoded[
-            "overall_subnet_reward"
-        ]
-        rewards_data_decoded["subnet_owner_reward"] = rewards_data_decoded[
-            "subnet_owner_reward"
-        ]
+        rewards_data_decoded["overall_subnet_reward"] = rewards_data_decoded["overall_subnet_reward"]
+        rewards_data_decoded["subnet_owner_reward"] = rewards_data_decoded["subnet_owner_reward"]
         rewards_data_decoded["subnet_rewards"] = rewards_data_decoded["subnet_rewards"]
-        rewards_data_decoded["delegate_stake_rewards"] = rewards_data_decoded[
-            "delegate_stake_rewards"
-        ]
-        rewards_data_decoded["subnet_node_rewards"] = rewards_data_decoded[
-            "subnet_node_rewards"
-        ]
+        rewards_data_decoded["delegate_stake_rewards"] = rewards_data_decoded["delegate_stake_rewards"]
+        rewards_data_decoded["subnet_node_rewards"] = rewards_data_decoded["subnet_node_rewards"]
 
         return cls(**rewards_data_decoded)
 
     @classmethod
     def from_vec_u8(cls, vec_u8: List[int]) -> "RewardsData":
         """Returns a RewardsData object from a ``vec_u8``."""
-
         if len(vec_u8) == 0:
             return RewardsData._get_null()
 
@@ -793,22 +750,16 @@ class RewardsData:
     @classmethod
     def list_from_vec_u8(cls, vec_u8: List[int]) -> List["RewardsData"]:
         """Returns a list of RewardsData objects from a ``vec_u8``."""
-
-        decoded_list = from_scale_encoding(
-            vec_u8, ChainDataType.RewardsData, is_vec=True
-        )
+        decoded_list = from_scale_encoding(vec_u8, ChainDataType.RewardsData, is_vec=True)
         if decoded_list is None:
             return []
 
-        decoded_list = [
-            RewardsData.fix_decoded_values(decoded) for decoded in decoded_list
-        ]
+        decoded_list = [RewardsData.fix_decoded_values(decoded) for decoded in decoded_list]
         return decoded_list
 
     @classmethod
     def list_from_scale_info(cls, scale_info: Any) -> List["RewardsData"]:
         """Returns a list of RewardsData objects from a ``decoded_list``."""
-
         encoded_list = []
         for code in map(ord, str(scale_info)):
             encoded_list.append(code)
@@ -832,17 +783,18 @@ class RewardsData:
         return decoded_list
 
     @staticmethod
-    def _rewards_data_to_namespace(rewards_data) -> "RewardsData":
+    def _rewards_data_to_namespace(data) -> "RewardsData":
         """
         Converts a RewardsData object to a namespace.
 
         Args:
-          rewards_data (RewardsData): The RewardsData object.
+          data (RewardsData): The RewardsData object.
 
         Returns:
           RewardsData: The RewardsData object.
+
         """
-        data = RewardsData(**rewards_data)
+        data = RewardsData(**data)
 
         return data
 
@@ -898,40 +850,27 @@ class SubnetNodeInfo:
         data_decoded["identity"] = data_decoded["identity"]
         data_decoded["classification"] = data_decoded["classification"]
         data_decoded["delegate_reward_rate"] = data_decoded["delegate_reward_rate"]
-        data_decoded["last_delegate_reward_rate_update"] = data_decoded[
-            "last_delegate_reward_rate_update"
-        ]
+        data_decoded["last_delegate_reward_rate_update"] = data_decoded["last_delegate_reward_rate_update"]
         data_decoded["unique"] = data_decoded["unique"]
         data_decoded["non_unique"] = data_decoded["non_unique"]
         data_decoded["stake_balance"] = data_decoded["stake_balance"]
-        data_decoded["total_node_delegate_stake_shares"] = data_decoded[
-            "total_node_delegate_stake_shares"
-        ]
-        data_decoded["node_delegate_stake_balance"] = data_decoded[
-            "node_delegate_stake_balance"
-        ]
+        data_decoded["total_node_delegate_stake_shares"] = data_decoded["total_node_delegate_stake_shares"]
+        data_decoded["node_delegate_stake_balance"] = data_decoded["node_delegate_stake_balance"]
         data_decoded["coldkey_reputation"] = data_decoded["coldkey_reputation"]
         data_decoded["subnet_node_reputation"] = data_decoded["subnet_node_reputation"]
         data_decoded["node_slot_index"] = data_decoded["node_slot_index"]
-        data_decoded["consecutive_idle_epochs"] = data_decoded[
-            "consecutive_idle_epochs"
-        ]
-        data_decoded["consecutive_included_epochs"] = data_decoded[
-            "consecutive_included_epochs"
-        ]
+        data_decoded["consecutive_idle_epochs"] = data_decoded["consecutive_idle_epochs"]
+        data_decoded["consecutive_included_epochs"] = data_decoded["consecutive_included_epochs"]
 
         return cls(**data_decoded)
 
     @classmethod
     def from_vec_u8(cls, vec_u8: List[int]) -> "SubnetNodeInfo":
         """Returns a SubnetNodeInfo object from a ``vec_u8``."""
-
         if len(vec_u8) == 0:
             return SubnetNodeInfo._get_null()
 
-        decoded = from_scale_encoding(
-            vec_u8, ChainDataType.SubnetNodeInfo, is_option=True
-        )
+        decoded = from_scale_encoding(vec_u8, ChainDataType.SubnetNodeInfo, is_option=True)
 
         if decoded is None:
             return SubnetNodeInfo._get_null()
@@ -943,16 +882,11 @@ class SubnetNodeInfo:
     @classmethod
     def list_from_vec_u8(cls, vec_u8: List[int]) -> List["SubnetNodeInfo"]:
         """Returns a list of SubnetNodeInfo objects from a ``vec_u8``."""
-
-        decoded_list = from_scale_encoding(
-            vec_u8, ChainDataType.SubnetNodeInfo, is_vec=True
-        )
+        decoded_list = from_scale_encoding(vec_u8, ChainDataType.SubnetNodeInfo, is_vec=True)
         if decoded_list is None:
             return []
 
-        decoded_list = [
-            SubnetNodeInfo.fix_decoded_values(decoded) for decoded in decoded_list
-        ]
+        decoded_list = [SubnetNodeInfo.fix_decoded_values(decoded) for decoded in decoded_list]
         return decoded_list
 
     @staticmethod
@@ -961,10 +895,11 @@ class SubnetNodeInfo:
         Converts a SubnetNodeInfo object to a namespace.
 
         Args:
-          rewards_data (SubnetNodeInfo): The SubnetNodeInfo object.
+          data (SubnetNodeInfo): The SubnetNodeInfo object.
 
         Returns:
           SubnetNodeInfo: The SubnetNodeInfo object.
+
         """
         data = SubnetNodeInfo(**data)
 
@@ -1028,9 +963,7 @@ class SubnetNode:
         data_decoded["bootnode"] = data_decoded["bootnode"]
         data_decoded["classification"] = data_decoded["classification"]
         data_decoded["delegate_reward_rate"] = data_decoded["delegate_reward_rate"]
-        data_decoded["last_delegate_reward_rate_update"] = data_decoded[
-            "last_delegate_reward_rate_update"
-        ]
+        data_decoded["last_delegate_reward_rate_update"] = data_decoded["last_delegate_reward_rate_update"]
         data_decoded["unique"] = data_decoded["unique"]
         data_decoded["non_unique"] = data_decoded["non_unique"]
 
@@ -1039,27 +972,21 @@ class SubnetNode:
     @classmethod
     def list_from_vec_u8(cls, vec_u8: List[int]) -> List["SubnetNode"]:
         """Returns a list of SubnetNode objects from a ``vec_u8``."""
-
         if len(vec_u8) == 0:
             return []
 
-        decoded_list = from_scale_encoding(
-            vec_u8, ChainDataType.SubnetNode, is_vec=True
-        )
+        decoded_list = from_scale_encoding(vec_u8, ChainDataType.SubnetNode, is_vec=True)
 
         if decoded_list is None:
             return []
 
-        decoded_list = [
-            SubnetNode.fix_decoded_values(decoded) for decoded in decoded_list
-        ]
+        decoded_list = [SubnetNode.fix_decoded_values(decoded) for decoded in decoded_list]
 
         return decoded_list
 
     @classmethod
     def from_vec_u8(cls, vec_u8: List[int]) -> "SubnetNode":
         """Returns a SubnetNodeInfo object from a ``vec_u8``."""
-
         if len(vec_u8) == 0:
             return SubnetNode._get_null()
 
@@ -1078,10 +1005,11 @@ class SubnetNode:
         Converts a SubnetNode object to a namespace.
 
         Args:
-          rewards_data (SubnetNode): The SubnetNode object.
+          data (SubnetNode): The SubnetNode object.
 
         Returns:
           SubnetNode: The SubnetNode object.
+
         """
         data = SubnetNode(**data)
 
@@ -1129,24 +1057,16 @@ class ConsensusSubmissionData:
     @classmethod
     def fix_decoded_values(cls, data_decoded: Any) -> "ConsensusSubmissionData":
         """Fixes the values of the ConsensusSubmissionData object."""
-        data_decoded["validator_subnet_node_id"] = data_decoded[
-            "validator_subnet_node_id"
-        ]
-        data_decoded["validator_epoch_progress"] = data_decoded[
-            "validator_epoch_progress"
-        ]
-        data_decoded["validator_reward_factor"] = data_decoded[
-            "validator_reward_factor"
-        ]
+        data_decoded["validator_subnet_node_id"] = data_decoded["validator_subnet_node_id"]
+        data_decoded["validator_epoch_progress"] = data_decoded["validator_epoch_progress"]
+        data_decoded["validator_reward_factor"] = data_decoded["validator_reward_factor"]
         data_decoded["attestation_ratio"] = data_decoded["attestation_ratio"]
         data_decoded["weight_sum"] = data_decoded["weight_sum"]
         data_decoded["data_length"] = data_decoded["data_length"]
         data_decoded["data"] = data_decoded["data"]
         data_decoded["attests"] = data_decoded["attests"]
         data_decoded["subnet_nodes"] = data_decoded["subnet_nodes"]
-        data_decoded["prioritize_queue_node_id"] = data_decoded[
-            "prioritize_queue_node_id"
-        ]
+        data_decoded["prioritize_queue_node_id"] = data_decoded["prioritize_queue_node_id"]
         data_decoded["remove_queue_node_id"] = data_decoded["remove_queue_node_id"]
 
         return cls(**data_decoded)
@@ -1154,7 +1074,6 @@ class ConsensusSubmissionData:
     @classmethod
     def from_vec_u8(cls, vec_u8: List[int]) -> "ConsensusSubmissionData":
         """Returns a ConsensusSubmissionData object from a ``vec_u8``."""
-
         if len(vec_u8) == 0:
             return ConsensusSubmissionData._get_null()
 
@@ -1170,17 +1089,11 @@ class ConsensusSubmissionData:
     @classmethod
     def list_from_vec_u8(cls, vec_u8: List[int]) -> List["ConsensusSubmissionData"]:
         """Returns a list of ConsensusSubmissionData objects from a ``vec_u8``."""
-
-        decoded_list = from_scale_encoding(
-            vec_u8, ChainDataType.ConsensusSubmissionData, is_vec=True
-        )
+        decoded_list = from_scale_encoding(vec_u8, ChainDataType.ConsensusSubmissionData, is_vec=True)
         if decoded_list is None:
             return []
 
-        decoded_list = [
-            ConsensusSubmissionData.fix_decoded_values(decoded)
-            for decoded in decoded_list
-        ]
+        decoded_list = [ConsensusSubmissionData.fix_decoded_values(decoded) for decoded in decoded_list]
         return decoded_list
 
     @staticmethod
@@ -1189,10 +1102,11 @@ class ConsensusSubmissionData:
         Converts a ConsensusSubmissionData object to a namespace.
 
         Args:
-          rewards_data (ConsensusSubmissionData): The ConsensusSubmissionData object.
+          data (ConsensusSubmissionData): The ConsensusSubmissionData object.
 
         Returns:
           ConsensusSubmissionData: The ConsensusSubmissionData object.
+
         """
         data = ConsensusSubmissionData(**data)
 
@@ -1240,7 +1154,6 @@ class SubnetNodeConsensusData:
     @classmethod
     def from_vec_u8(cls, vec_u8: List[int]) -> "SubnetNodeConsensusData":
         """Returns a SubnetNodeConsensusData object from a ``vec_u8``."""
-
         if len(vec_u8) == 0:
             return SubnetNodeConsensusData._get_null()
 
@@ -1256,17 +1169,11 @@ class SubnetNodeConsensusData:
     @classmethod
     def list_from_vec_u8(cls, vec_u8: List[int]) -> List["SubnetNodeConsensusData"]:
         """Returns a list of SubnetNodeConsensusData objects from a ``vec_u8``."""
-
-        decoded_list = from_scale_encoding(
-            vec_u8, ChainDataType.SubnetNodeConsensusData, is_vec=True
-        )
+        decoded_list = from_scale_encoding(vec_u8, ChainDataType.SubnetNodeConsensusData, is_vec=True)
         if decoded_list is None:
             return []
 
-        decoded_list = [
-            SubnetNodeConsensusData.fix_decoded_values(decoded)
-            for decoded in decoded_list
-        ]
+        decoded_list = [SubnetNodeConsensusData.fix_decoded_values(decoded) for decoded in decoded_list]
         return decoded_list
 
     @staticmethod
@@ -1275,10 +1182,11 @@ class SubnetNodeConsensusData:
         Converts a SubnetNodeConsensusData object to a namespace.
 
         Args:
-          rewards_data (SubnetNodeConsensusData): The SubnetNodeConsensusData object.
+          data (SubnetNodeConsensusData): The SubnetNodeConsensusData object.
 
         Returns:
           SubnetNodeConsensusData: The SubnetNodeConsensusData object.
+
         """
         data = SubnetNodeConsensusData(**data)
 
@@ -1345,22 +1253,13 @@ class ConsensusData:
 
     @classmethod
     def fix_decoded_values(cls, data_decoded: Any) -> "ConsensusData":
-        serial = (
-            data_decoded.serialize()
-            if hasattr(data_decoded, "serialize")
-            else dict(data_decoded)
-        )
+        serial = data_decoded.serialize() if hasattr(data_decoded, "serialize") else dict(data_decoded)
 
         attests = [Attest.fix_decoded_values(a) for a in serial.get("attests", [])]
 
-        subnet_nodes = [
-            SubnetNode.fix_decoded_values(sn) for sn in serial.get("subnet_nodes", [])
-        ]
+        subnet_nodes = [SubnetNode.fix_decoded_values(sn) for sn in serial.get("subnet_nodes", [])]
 
-        data_field = [
-            SubnetNodeConsensusData.fix_decoded_values(d)
-            for d in serial.get("data", [])
-        ]
+        data_field = [SubnetNodeConsensusData.fix_decoded_values(d) for d in serial.get("data", [])]
 
         return cls(
             validator_id=int(serial["validator_id"]),
@@ -1396,7 +1295,6 @@ class AllSubnetBootnodes:
     @classmethod
     def from_vec_u8(cls, vec_u8: List[int]) -> Optional["AllSubnetBootnodes"]:
         """Returns a AllSubnetBootnodes object from a ``vec_u8``."""
-
         if len(vec_u8) == 0:
             return AllSubnetBootnodes._get_null()
 
@@ -1412,16 +1310,11 @@ class AllSubnetBootnodes:
     @classmethod
     def list_from_vec_u8(cls, vec_u8: List[int]) -> List["AllSubnetBootnodes"]:
         """Returns a list of AllSubnetBootnodes objects from a ``vec_u8``."""
-
-        decoded_list = from_scale_encoding(
-            vec_u8, ChainDataType.AllSubnetBootnodes, is_vec=True, is_option=True
-        )
+        decoded_list = from_scale_encoding(vec_u8, ChainDataType.AllSubnetBootnodes, is_vec=True, is_option=True)
         if decoded_list is None:
             return []
 
-        decoded_list = [
-            AllSubnetBootnodes.fix_decoded_values(decoded) for decoded in decoded_list
-        ]
+        decoded_list = [AllSubnetBootnodes.fix_decoded_values(decoded) for decoded in decoded_list]
         return decoded_list
 
     @staticmethod
@@ -1430,10 +1323,11 @@ class AllSubnetBootnodes:
         Converts a AllSubnetBootnodes object to a namespace.
 
         Args:
-          rewards_data (AllSubnetBootnodes): The AllSubnetBootnodes object.
+          data (AllSubnetBootnodes): The AllSubnetBootnodes object.
 
         Returns:
           AllSubnetBootnodes: The AllSubnetBootnodes object.
+
         """
         data = AllSubnetBootnodes(**data)
 
@@ -1468,7 +1362,6 @@ class SubnetNodeStakeInfo:
     @classmethod
     def from_vec_u8(cls, vec_u8: List[int]) -> Optional["SubnetNodeStakeInfo"]:
         """Returns a SubnetNodeStakeInfo object from a ``vec_u8``."""
-
         if len(vec_u8) == 0:
             return SubnetNodeStakeInfo._get_null()
 
@@ -1484,16 +1377,11 @@ class SubnetNodeStakeInfo:
     @classmethod
     def list_from_vec_u8(cls, vec_u8: List[int]) -> List["SubnetNodeStakeInfo"]:
         """Returns a list of SubnetNodeStakeInfo objects from a ``vec_u8``."""
-
-        decoded_list = from_scale_encoding(
-            vec_u8, ChainDataType.SubnetNodeStakeInfo, is_vec=True
-        )
+        decoded_list = from_scale_encoding(vec_u8, ChainDataType.SubnetNodeStakeInfo, is_vec=True)
         if decoded_list is None:
             return []
 
-        decoded_list = [
-            SubnetNodeStakeInfo.fix_decoded_values(decoded) for decoded in decoded_list
-        ]
+        decoded_list = [SubnetNodeStakeInfo.fix_decoded_values(decoded) for decoded in decoded_list]
         return decoded_list
 
     @staticmethod
@@ -1502,10 +1390,11 @@ class SubnetNodeStakeInfo:
         Converts a SubnetNodeStakeInfo object to a namespace.
 
         Args:
-          rewards_data (SubnetNodeStakeInfo): The SubnetNodeStakeInfo object.
+          data (SubnetNodeStakeInfo): The SubnetNodeStakeInfo object.
 
         Returns:
           SubnetNodeStakeInfo: The SubnetNodeStakeInfo object.
+
         """
         data = SubnetNodeStakeInfo(**data)
 
@@ -1540,7 +1429,6 @@ class DelegateStakeInfo:
     @classmethod
     def from_vec_u8(cls, vec_u8: List[int]) -> Optional["DelegateStakeInfo"]:
         """Returns a DelegateStakeInfo object from a ``vec_u8``."""
-
         if len(vec_u8) == 0:
             return DelegateStakeInfo._get_null()
 
@@ -1556,16 +1444,11 @@ class DelegateStakeInfo:
     @classmethod
     def list_from_vec_u8(cls, vec_u8: List[int]) -> List["DelegateStakeInfo"]:
         """Returns a list of DelegateStakeInfo objects from a ``vec_u8``."""
-
-        decoded_list = from_scale_encoding(
-            vec_u8, ChainDataType.DelegateStakeInfo, is_vec=True
-        )
+        decoded_list = from_scale_encoding(vec_u8, ChainDataType.DelegateStakeInfo, is_vec=True)
         if decoded_list is None:
             return []
 
-        decoded_list = [
-            DelegateStakeInfo.fix_decoded_values(decoded) for decoded in decoded_list
-        ]
+        decoded_list = [DelegateStakeInfo.fix_decoded_values(decoded) for decoded in decoded_list]
         return decoded_list
 
     @staticmethod
@@ -1574,10 +1457,11 @@ class DelegateStakeInfo:
         Converts a DelegateStakeInfo object to a namespace.
 
         Args:
-          rewards_data (DelegateStakeInfo): The DelegateStakeInfo object.
+          data (DelegateStakeInfo): The DelegateStakeInfo object.
 
         Returns:
-          SubnetNoDelegateStakeInfodeStakeInfo: The DelegateStakeInfo object.
+          DelegateStakeInfo: The DelegateStakeInfo object.
+
         """
         data = DelegateStakeInfo(**data)
 
@@ -1608,7 +1492,6 @@ class NodeDelegateStakeInfo:
     @classmethod
     def from_vec_u8(cls, vec_u8: List[int]) -> Optional["NodeDelegateStakeInfo"]:
         """Returns a NodeDelegateStakeInfo object from a ``vec_u8``."""
-
         if len(vec_u8) == 0:
             return NodeDelegateStakeInfo._get_null()
 
@@ -1624,17 +1507,11 @@ class NodeDelegateStakeInfo:
     @classmethod
     def list_from_vec_u8(cls, vec_u8: List[int]) -> List["NodeDelegateStakeInfo"]:
         """Returns a list of NodeDelegateStakeInfo objects from a ``vec_u8``."""
-
-        decoded_list = from_scale_encoding(
-            vec_u8, ChainDataType.NodeDelegateStakeInfo, is_vec=True
-        )
+        decoded_list = from_scale_encoding(vec_u8, ChainDataType.NodeDelegateStakeInfo, is_vec=True)
         if decoded_list is None:
             return []
 
-        decoded_list = [
-            NodeDelegateStakeInfo.fix_decoded_values(decoded)
-            for decoded in decoded_list
-        ]
+        decoded_list = [NodeDelegateStakeInfo.fix_decoded_values(decoded) for decoded in decoded_list]
         return decoded_list
 
     @staticmethod
@@ -1643,10 +1520,11 @@ class NodeDelegateStakeInfo:
         Converts a NodeDelegateStakeInfo object to a namespace.
 
         Args:
-          rewards_data (NodeDelegateStakeInfo): The NodeDelegateStakeInfo object.
+          data (NodeDelegateStakeInfo): The NodeDelegateStakeInfo object.
 
         Returns:
-          SubnetNoDelegateStakeInfodeStakeInfo: The NodeDelegateStakeInfo object.
+          NodeDelegateStakeInfo: The NodeDelegateStakeInfo object.
+
         """
         data = NodeDelegateStakeInfo(**data)
 

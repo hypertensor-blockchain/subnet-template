@@ -2,28 +2,32 @@
 
 import argparse
 import logging
-import sys
 import os
 from pathlib import Path
+import random
 import secrets
+import sys
+import time
 
+from dotenv import load_dotenv
+from substrateinterface import (
+    Keypair as SubstrateKeypair,
+    KeypairType,
+)
 import trio
 
 from libp2p.crypto.ed25519 import (
+    Ed25519PrivateKey,
     create_new_key_pair,
 )
-from subnet.server.server import Server
-import random
-from subnet.hypertensor.mock.local_chain_functions import LocalMockHypertensor
-from subnet.hypertensor.chain_functions import Hypertensor, KeypairFrom
 from libp2p.crypto.keys import KeyPair
-from libp2p.peer.pb import crypto_pb2
-from libp2p.crypto.ed25519 import Ed25519PrivateKey
 from libp2p.crypto.secp256k1 import Secp256k1PrivateKey
 from libp2p.peer.id import ID as PeerID
-from substrateinterface import Keypair as SubstrateKeypair, KeypairType
-from dotenv import load_dotenv
+from libp2p.peer.pb import crypto_pb2
 from subnet.db.database import RocksDB
+from subnet.hypertensor.chain_functions import Hypertensor, KeypairFrom
+from subnet.hypertensor.mock.local_chain_functions import LocalMockHypertensor
+from subnet.server.server import Server
 
 load_dotenv(os.path.join(Path.cwd(), ".env"))
 
@@ -46,47 +50,89 @@ def parse_args() -> argparse.Namespace:
         epilog="""
 Examples:
   # Run a standalone node
-  python -m subnet.cli.run_node_gossip
+  python -m subnet.cli.run_node
 
   # Run a node connecting to bootstrap peers
-  python -m subnet.cli.run_node_gossip --bootstrap /ip4/127.0.0.1/tcp/31330/p2p/QmBootstrapPeerID
+  python -m subnet.cli.run_node --bootstrap /ip4/127.0.0.1/tcp/31330/p2p/QmBootstrapPeerID
 
   # Connect to multiple bootstrap peers
-  python -m subnet.cli.run_node_gossip \\
+  python -m subnet.cli.run_node \\
     --bootstrap /ip4/192.168.1.100/tcp/31330/p2p/QmPeer1 \\
     --bootstrap /ip4/192.168.1.101/tcp/31330/p2p/QmPeer2
 
-  # Run a node with an identity file
-python -m subnet.cli.run_node_gossip \
+# Start bootnode (or start bootnode through `run_bootnode`)
+
+python -m subnet.cli.run_node \
 --private_key_path alith-ed25519.key \
 --port 38960 \
---bootstrap /ip4/127.0.0.1/tcp/38990/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
 --subnet_id 1 \
 --subnet_node_id 1 \
 --no_blockchain_rpc
 
-python -m subnet.cli.run_node_gossip \
---private_key_path baltathar-ed25519.key \
+# Connect to bootnode (if we didn't use alith as the bootnode)
+
+python -m subnet.cli.run_node \
+--private_key_path alith-ed25519.key \
 --port 38961 \
+--bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
+--subnet_id 1 \
+--subnet_node_id 1 \
+--no_blockchain_rpc
+
+python -m subnet.cli.run_node \
+--private_key_path baltathar-ed25519.key \
+--port 38962 \
 --bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWAkRWUdmXy5tkGQ1oUKxx2W4sXxsWr4ekrcvLCbA3BQTf \
 --subnet_id 1 \
 --subnet_node_id 2 \
 --no_blockchain_rpc
 
-python -m subnet.cli.run_node_gossip \
+python -m subnet.cli.run_node \
 --private_key_path charleth-ed25519.key \
---port 38962 \
---bootstrap /ip4/127.0.0.1/tcp/38990/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWAkRWUdmXy5tkGQ1oUKxx2W4sXxsWr4ekrcvLCbA3BQTf /ip4/127.0.0.1/tcp/38961/p2p/12D3KooWBqJu85tnb3WciU3LcXhCmTdkvMi4k1Zq3BshUPhVfTui \
+--port 38963 \
+--bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWAkRWUdmXy5tkGQ1oUKxx2W4sXxsWr4ekrcvLCbA3BQTf \
 --subnet_id 1 \
 --subnet_node_id 3 \
 --no_blockchain_rpc
 
-python -m subnet.cli.run_node_gossip \
---private_key_path charleth-ed25519.key \
---port 38962 \
---bootstrap /ip4/127.0.0.1/tcp/38961/p2p/12D3KooWBqJu85tnb3WciU3LcXhCmTdkvMi4k1Zq3BshUPhVfTui \
+python -m subnet.cli.run_node \
+--private_key_path dorothy.key \
+--port 38964 \
+--bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWAkRWUdmXy5tkGQ1oUKxx2W4sXxsWr4ekrcvLCbA3BQTf \
 --subnet_id 1 \
---subnet_node_id 3 \
+--subnet_node_id 4 \
+--no_blockchain_rpc
+
+python -m subnet.cli.run_node \
+--private_key_path faith.key \
+--port 38965 \
+--bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWAkRWUdmXy5tkGQ1oUKxx2W4sXxsWr4ekrcvLCbA3BQTf \
+--subnet_id 1 \
+--subnet_node_id 5 \
+--no_blockchain_rpc
+
+python -m subnet.cli.run_node \
+--private_key_path george.key \
+--port 38966 \
+--bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWAkRWUdmXy5tkGQ1oUKxx2W4sXxsWr4ekrcvLCbA3BQTf \
+--subnet_id 1 \
+--subnet_node_id 6 \
+--no_blockchain_rpc
+
+python -m subnet.cli.run_node \
+--private_key_path harry.key \
+--port 38967 \
+--bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWAkRWUdmXy5tkGQ1oUKxx2W4sXxsWr4ekrcvLCbA3BQTf \
+--subnet_id 1 \
+--subnet_node_id 7 \
+--no_blockchain_rpc
+
+python -m subnet.cli.run_node \
+--private_key_path ian.key \
+--port 38968 \
+--bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWAkRWUdmXy5tkGQ1oUKxx2W4sXxsWr4ekrcvLCbA3BQTf \
+--subnet_id 1 \
+--subnet_node_id 8 \
 --no_blockchain_rpc
 
         """,
@@ -115,8 +161,12 @@ python -m subnet.cli.run_node_gossip \
     )
 
     parser.add_argument(
-        "--base_path", type=str, default=None, help="Specify custom base path"
+        "--is_bootstrap",
+        action="store_true",
+        help="Start a bootnode that doesn't publish messages or run consensus. ",
     )
+
+    parser.add_argument("--base_path", type=str, default=None, help="Specify custom base path")
 
     parser.add_argument(
         "--private_key_path",
@@ -125,9 +175,7 @@ python -m subnet.cli.run_node_gossip \
         help="Path to the private key file. ",
     )
 
-    parser.add_argument(
-        "--subnet_id", type=int, default=1, help="Subnet ID this node belongs to. "
-    )
+    parser.add_argument("--subnet_id", type=int, default=1, help="Subnet ID this node belongs to. ")
 
     parser.add_argument(
         "--subnet_node_id",
@@ -136,9 +184,7 @@ python -m subnet.cli.run_node_gossip \
         help="Subnet node ID this node belongs to. ",
     )
 
-    parser.add_argument(
-        "--no_blockchain_rpc", action="store_true", help="[Testing] Run with no RPC"
-    )
+    parser.add_argument("--no_blockchain_rpc", action="store_true", help="[Testing] Run with no RPC")
 
     parser.add_argument(
         "--local_rpc",
@@ -226,15 +272,11 @@ def main() -> None:
 
         if args.phrase is not None:
             hypertensor = Hypertensor(rpc, args.phrase)
-            substrate_keypair = SubstrateKeypair.create_from_mnemonic(
-                args.phrase, crypto_type=KeypairType.ECDSA
-            )
+            substrate_keypair = SubstrateKeypair.create_from_mnemonic(args.phrase, crypto_type=KeypairType.ECDSA)
             hotkey = substrate_keypair.ss58_address
             logger.info(f"hotkey: {hotkey}")
         elif args.tensor_private_key is not None:
-            hypertensor = Hypertensor(
-                rpc, args.tensor_private_key, KeypairFrom.PRIVATE_KEY
-            )
+            hypertensor = Hypertensor(rpc, args.tensor_private_key, KeypairFrom.PRIVATE_KEY)
             substrate_keypair = SubstrateKeypair.create_from_private_key(
                 args.tensor_private_key, crypto_type=KeypairType.ECDSA
             )
@@ -252,9 +294,7 @@ def main() -> None:
             )
 
         # Check subnet node exists
-        subnet_node_info = hypertensor.get_formatted_get_subnet_node_info(
-            args.subnet_id, args.subnet_node_id
-        )
+        subnet_node_info = hypertensor.get_formatted_get_subnet_node_info(args.subnet_id, args.subnet_node_id)
         if subnet_node_info is None:
             raise Exception("Subnet node does not exist")
 
@@ -274,6 +314,8 @@ def main() -> None:
             client_peer_id="",
             reset_db=True if not args.bootstrap else False,
         )
+        # Give time for database to be written
+        # time.sleep(5.0)
 
     try:
         server = Server(
@@ -284,6 +326,7 @@ def main() -> None:
             subnet_id=args.subnet_id,
             subnet_node_id=args.subnet_node_id,
             hypertensor=hypertensor,
+            is_bootstrap=args.is_bootstrap,
         )
         trio.run(server.run)
     except KeyboardInterrupt:

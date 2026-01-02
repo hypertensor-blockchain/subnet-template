@@ -1,4 +1,5 @@
 import json
+import logging
 import random
 import time
 from typing import Any, List, Optional
@@ -18,10 +19,8 @@ from subnet.hypertensor.chain_functions import (
     SubnetNodeClass,
     subnet_node_class_to_enum,
 )
-from subnet.hypertensor.config import BLOCK_SECS
+from subnet.hypertensor.config import BLOCK_SECS, EPOCH_LENGTH
 from subnet.hypertensor.mock.mock_db import MockDatabase  # assume separate file
-
-import logging
 
 # Configure logging
 logging.basicConfig(
@@ -57,7 +56,6 @@ class LocalMockHypertensor:
         self.hotkey = hotkey
         self.bootnode_peer_id = bootnode_peer_id
         self.client_peer_id = client_peer_id
-        self.BLOCK_SECS = 6
 
         # Only store if not bootnode, use `subnet_node_id=0` if bootnode
         if subnet_node_id != 0:
@@ -203,7 +201,7 @@ class LocalMockHypertensor:
 
                 subnet_nodes.append(
                     SubnetNode(
-                        id=node_dict.get("id"),
+                        id=node_dict.get("subnet_node_id"),
                         hotkey=node_dict.get("hotkey", ""),
                         peer_id=node_dict.get("peer_id", ""),
                         bootnode_peer_id=node_dict.get("bootnode_peer_id", ""),
@@ -257,10 +255,10 @@ class LocalMockHypertensor:
 
     def get_block_number(self) -> int:
         now = time.time()
-        return int(now // self.BLOCK_SECS)
+        return int(now // BLOCK_SECS)
 
     def get_epoch_length(self):
-        return 20
+        return EPOCH_LENGTH
 
     def get_epoch(self):
         current_block = self.get_block_number()

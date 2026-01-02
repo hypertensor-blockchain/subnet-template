@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum
+import logging
 from typing import Any, List, Optional
 
 from scalecodec.base import RuntimeConfiguration
@@ -26,7 +27,6 @@ from subnet.hypertensor.chain_data import (
     SubnetNodeStakeInfo,
 )
 from subnet.hypertensor.config import BLOCK_SECS
-import logging
 
 # Configure logging
 logging.basicConfig(
@@ -125,23 +125,15 @@ class Hypertensor:
         runtime_config: Optional[RuntimeConfiguration] = None,
     ):
         self.url = url
-        self.interface: SubstrateInterface = SubstrateInterface(
-            url=url, runtime_config=runtime_config
-        )
+        self.interface: SubstrateInterface = SubstrateInterface(url=url, runtime_config=runtime_config)
         if keypair_from is None:
-            self.keypair = Keypair.create_from_mnemonic(
-                phrase, crypto_type=KeypairType.ECDSA
-            )
+            self.keypair = Keypair.create_from_mnemonic(phrase, crypto_type=KeypairType.ECDSA)
             self.hotkey = self.keypair.ss58_address
         elif keypair_from is KeypairFrom.MNEMONIC:
-            self.keypair = Keypair.create_from_mnemonic(
-                phrase, crypto_type=KeypairType.ECDSA
-            )
+            self.keypair = Keypair.create_from_mnemonic(phrase, crypto_type=KeypairType.ECDSA)
             self.hotkey = self.keypair.ss58_address
         elif keypair_from is KeypairFrom.PRIVATE_KEY:
-            self.keypair = Keypair.create_from_private_key(
-                phrase, crypto_type=KeypairType.ECDSA
-            )
+            self.keypair = Keypair.create_from_private_key(phrase, crypto_type=KeypairType.ECDSA)
             self.hotkey = self.keypair.ss58_address
 
     def get_block_number(self):
@@ -215,13 +207,9 @@ class Hypertensor:
                     nonce = _interface.get_account_nonce(self.keypair.ss58_address)
 
                     # create signed extrinsic
-                    extrinsic = _interface.create_signed_extrinsic(
-                        call=call, keypair=self.keypair, nonce=nonce
-                    )
+                    extrinsic = _interface.create_signed_extrinsic(call=call, keypair=self.keypair, nonce=nonce)
 
-                    receipt = _interface.submit_extrinsic(
-                        extrinsic, wait_for_inclusion=True
-                    )
+                    receipt = _interface.submit_extrinsic(extrinsic, wait_for_inclusion=True)
                     if receipt.is_success:
                         print("✅ Extrinsic Success")
                     else:
@@ -260,13 +248,9 @@ class Hypertensor:
                     nonce = _interface.get_account_nonce(self.keypair.ss58_address)
 
                     # create signed extrinsic
-                    extrinsic = _interface.create_signed_extrinsic(
-                        call=call, keypair=self.keypair, nonce=nonce
-                    )
+                    extrinsic = _interface.create_signed_extrinsic(call=call, keypair=self.keypair, nonce=nonce)
 
-                    receipt = _interface.submit_extrinsic(
-                        extrinsic, wait_for_inclusion=True
-                    )
+                    receipt = _interface.submit_extrinsic(extrinsic, wait_for_inclusion=True)
 
                     if receipt.is_success:
                         print("✅ Extrinsic Success")
@@ -317,15 +301,11 @@ class Hypertensor:
             self.map_value = "u32"
 
             for item_key, item_value in value:
-                key_obj = self.runtime_config.create_scale_object(
-                    type_string=self.map_key, metadata=self.metadata
-                )
+                key_obj = self.runtime_config.create_scale_object(type_string=self.map_key, metadata=self.metadata)
 
                 data += key_obj.encode(item_key)
 
-                value_obj = self.runtime_config.create_scale_object(
-                    type_string=self.map_value, metadata=self.metadata
-                )
+                value_obj = self.runtime_config.create_scale_object(type_string=self.map_value, metadata=self.metadata)
 
                 data += value_obj.encode(item_value)
 
@@ -355,9 +335,7 @@ class Hypertensor:
         )
 
         # create signed extrinsic
-        extrinsic = self.interface.create_signed_extrinsic(
-            call=call, keypair=self.keypair
-        )
+        extrinsic = self.interface.create_signed_extrinsic(call=call, keypair=self.keypair)
 
         Map.process_encode = _orig_process_encode
 
@@ -365,9 +343,7 @@ class Hypertensor:
         def submit_extrinsic():
             try:
                 with self.interface as _interface:
-                    receipt = _interface.submit_extrinsic(
-                        extrinsic, wait_for_inclusion=True
-                    )
+                    receipt = _interface.submit_extrinsic(extrinsic, wait_for_inclusion=True)
                     return receipt
             except SubstrateRequestException as e:
                 logger.error("Failed to send: {}".format(e))
@@ -383,7 +359,6 @@ class Hypertensor:
 
         :param subnet_id: subnet ID
         """
-
         # compose call
         call = self.interface.compose_call(
             call_module="Network",
@@ -402,13 +377,9 @@ class Hypertensor:
                     nonce = _interface.get_account_nonce(self.keypair.ss58_address)
 
                     # create signed extrinsic
-                    extrinsic = _interface.create_signed_extrinsic(
-                        call=call, keypair=self.keypair, nonce=nonce
-                    )
+                    extrinsic = _interface.create_signed_extrinsic(call=call, keypair=self.keypair, nonce=nonce)
 
-                    receipt = _interface.submit_extrinsic(
-                        extrinsic, wait_for_inclusion=True
-                    )
+                    receipt = _interface.submit_extrinsic(extrinsic, wait_for_inclusion=True)
                     return receipt
             except SubstrateRequestException as e:
                 logger.error("Failed to send: {}".format(e))
@@ -424,7 +395,6 @@ class Hypertensor:
 
         :param subnet_id: subnet ID
         """
-
         # compose call
         call = self.interface.compose_call(
             call_module="Network",
@@ -435,17 +405,13 @@ class Hypertensor:
         )
 
         # create signed extrinsic
-        extrinsic = self.interface.create_signed_extrinsic(
-            call=call, keypair=self.keypair
-        )
+        extrinsic = self.interface.create_signed_extrinsic(call=call, keypair=self.keypair)
 
         @retry(wait=wait_fixed(BLOCK_SECS + 1), stop=stop_after_attempt(4))
         def submit_extrinsic():
             try:
                 with self.interface as _interface:
-                    receipt = _interface.submit_extrinsic(
-                        extrinsic, wait_for_inclusion=True
-                    )
+                    receipt = _interface.submit_extrinsic(extrinsic, wait_for_inclusion=True)
                     return receipt
             except SubstrateRequestException as e:
                 logger.error("Failed to send: {}".format(e))
@@ -476,7 +442,6 @@ class Hypertensor:
         :param unique: unique optional parameter
         :param non_unique: optional parametr
         """
-
         # compose call
         call = self.interface.compose_call(
             call_module="Network",
@@ -503,13 +468,9 @@ class Hypertensor:
                     nonce = _interface.get_account_nonce(self.keypair.ss58_address)
 
                     # create signed extrinsic
-                    extrinsic = _interface.create_signed_extrinsic(
-                        call=call, keypair=self.keypair, nonce=nonce
-                    )
+                    extrinsic = _interface.create_signed_extrinsic(call=call, keypair=self.keypair, nonce=nonce)
 
-                    receipt = _interface.submit_extrinsic(
-                        extrinsic, wait_for_inclusion=True
-                    )
+                    receipt = _interface.submit_extrinsic(extrinsic, wait_for_inclusion=True)
                     return receipt
             except SubstrateRequestException as e:
                 logger.error("Failed to send: {}".format(e))
@@ -542,7 +503,6 @@ class Hypertensor:
         :param b: optional parametr
         :param c: optional parametr
         """
-
         # compose call
         call = self.interface.compose_call(
             call_module="Network",
@@ -570,13 +530,9 @@ class Hypertensor:
                     nonce = _interface.get_account_nonce(self.keypair.ss58_address)
 
                     # create signed extrinsic
-                    extrinsic = _interface.create_signed_extrinsic(
-                        call=call, keypair=self.keypair, nonce=nonce
-                    )
+                    extrinsic = _interface.create_signed_extrinsic(call=call, keypair=self.keypair, nonce=nonce)
 
-                    receipt = _interface.submit_extrinsic(
-                        extrinsic, wait_for_inclusion=True
-                    )
+                    receipt = _interface.submit_extrinsic(extrinsic, wait_for_inclusion=True)
                     return receipt
             except SubstrateRequestException as e:
                 logger.error("Failed to send: {}".format(e))
@@ -594,7 +550,6 @@ class Hypertensor:
         :param subnet_id: subnet ID
         :param subnet_node_id: subnet node ID
         """
-
         # compose call
         call = self.interface.compose_call(
             call_module="Network",
@@ -613,13 +568,9 @@ class Hypertensor:
                     nonce = _interface.get_account_nonce(self.keypair.ss58_address)
 
                     # create signed extrinsic
-                    extrinsic = _interface.create_signed_extrinsic(
-                        call=call, keypair=self.keypair, nonce=nonce
-                    )
+                    extrinsic = _interface.create_signed_extrinsic(call=call, keypair=self.keypair, nonce=nonce)
 
-                    receipt = _interface.submit_extrinsic(
-                        extrinsic, wait_for_inclusion=True
-                    )
+                    receipt = _interface.submit_extrinsic(extrinsic, wait_for_inclusion=True)
                     return receipt
             except SubstrateRequestException as e:
                 logger.error("Failed to send: {}".format(e))
@@ -637,7 +588,6 @@ class Hypertensor:
         :param subnet_id: subnet ID
         :param subnet_node_id: subnet node ID
         """
-
         # compose call
         call = self.interface.compose_call(
             call_module="Network",
@@ -656,13 +606,9 @@ class Hypertensor:
                     nonce = _interface.get_account_nonce(self.keypair.ss58_address)
 
                     # create signed extrinsic
-                    extrinsic = _interface.create_signed_extrinsic(
-                        call=call, keypair=self.keypair, nonce=nonce
-                    )
+                    extrinsic = _interface.create_signed_extrinsic(call=call, keypair=self.keypair, nonce=nonce)
 
-                    receipt = _interface.submit_extrinsic(
-                        extrinsic, wait_for_inclusion=True
-                    )
+                    receipt = _interface.submit_extrinsic(extrinsic, wait_for_inclusion=True)
                     return receipt
             except SubstrateRequestException as e:
                 logger.error("Failed to send: {}".format(e))
@@ -680,7 +626,6 @@ class Hypertensor:
         :param subnet_id: subnet ID
         :param subnet_node_id: subnet node ID
         """
-
         # compose call
         call = self.interface.compose_call(
             call_module="Network",
@@ -699,13 +644,9 @@ class Hypertensor:
                     nonce = _interface.get_account_nonce(self.keypair.ss58_address)
 
                     # create signed extrinsic
-                    extrinsic = _interface.create_signed_extrinsic(
-                        call=call, keypair=self.keypair, nonce=nonce
-                    )
+                    extrinsic = _interface.create_signed_extrinsic(call=call, keypair=self.keypair, nonce=nonce)
 
-                    receipt = _interface.submit_extrinsic(
-                        extrinsic, wait_for_inclusion=True
-                    )
+                    receipt = _interface.submit_extrinsic(extrinsic, wait_for_inclusion=True)
                     return receipt
             except SubstrateRequestException as e:
                 logger.error("Failed to send: {}".format(e))
@@ -725,7 +666,6 @@ class Hypertensor:
         :param subnet_node_id: subnet node ID
         :param stake_to_be_added: stake to be added towards subnet
         """
-
         # compose call
         call = self.interface.compose_call(
             call_module="Network",
@@ -746,13 +686,9 @@ class Hypertensor:
                     nonce = _interface.get_account_nonce(self.keypair.ss58_address)
 
                     # create signed extrinsic
-                    extrinsic = _interface.create_signed_extrinsic(
-                        call=call, keypair=self.keypair, nonce=nonce
-                    )
+                    extrinsic = _interface.create_signed_extrinsic(call=call, keypair=self.keypair, nonce=nonce)
 
-                    receipt = _interface.submit_extrinsic(
-                        extrinsic, wait_for_inclusion=True
-                    )
+                    receipt = _interface.submit_extrinsic(extrinsic, wait_for_inclusion=True)
                     return receipt
             except SubstrateRequestException as e:
                 logger.error("Failed to send: {}".format(e))
@@ -772,7 +708,6 @@ class Hypertensor:
         :param subnet_id: Subnet ID
         :param stake_to_be_removed: stake to be removed from subnet
         """
-
         # compose call
         call = self.interface.compose_call(
             call_module="Network",
@@ -792,13 +727,9 @@ class Hypertensor:
                     nonce = _interface.get_account_nonce(self.keypair.ss58_address)
 
                     # create signed extrinsic
-                    extrinsic = _interface.create_signed_extrinsic(
-                        call=call, keypair=self.keypair, nonce=nonce
-                    )
+                    extrinsic = _interface.create_signed_extrinsic(call=call, keypair=self.keypair, nonce=nonce)
 
-                    receipt = _interface.submit_extrinsic(
-                        extrinsic, wait_for_inclusion=True
-                    )
+                    receipt = _interface.submit_extrinsic(extrinsic, wait_for_inclusion=True)
                     return receipt
             except SubstrateRequestException as e:
                 logger.error("Failed to send: {}".format(e))
@@ -809,7 +740,6 @@ class Hypertensor:
         """
         Remove balance from unbondings ledger
         """
-
         # compose call
         call = self.interface.compose_call(
             call_module="Network",
@@ -824,13 +754,9 @@ class Hypertensor:
                     nonce = _interface.get_account_nonce(self.keypair.ss58_address)
 
                     # create signed extrinsic
-                    extrinsic = _interface.create_signed_extrinsic(
-                        call=call, keypair=self.keypair, nonce=nonce
-                    )
+                    extrinsic = _interface.create_signed_extrinsic(call=call, keypair=self.keypair, nonce=nonce)
 
-                    receipt = _interface.submit_extrinsic(
-                        extrinsic, wait_for_inclusion=True
-                    )
+                    receipt = _interface.submit_extrinsic(extrinsic, wait_for_inclusion=True)
                     return receipt
             except SubstrateRequestException as e:
                 logger.error("Failed to send: {}".format(e))
@@ -848,7 +774,6 @@ class Hypertensor:
         :param subnet_id: subnet ID
         :param stake_to_be_added: stake to be added towards subnet
         """
-
         # compose call
         call = self.interface.compose_call(
             call_module="Network",
@@ -867,13 +792,9 @@ class Hypertensor:
                     nonce = _interface.get_account_nonce(self.keypair.ss58_address)
 
                     # create signed extrinsic
-                    extrinsic = _interface.create_signed_extrinsic(
-                        call=call, keypair=self.keypair, nonce=nonce
-                    )
+                    extrinsic = _interface.create_signed_extrinsic(call=call, keypair=self.keypair, nonce=nonce)
 
-                    receipt = _interface.submit_extrinsic(
-                        extrinsic, wait_for_inclusion=True
-                    )
+                    receipt = _interface.submit_extrinsic(extrinsic, wait_for_inclusion=True)
                     return receipt
             except SubstrateRequestException as e:
                 logger.error("Failed to send: {}".format(e))
@@ -893,7 +814,6 @@ class Hypertensor:
         :param to_subnet_id: to subnet ID
         :param stake_to_be_added: stake to be added towards subnet
         """
-
         # compose call
         call = self.interface.compose_call(
             call_module="Network",
@@ -913,13 +833,9 @@ class Hypertensor:
                     nonce = _interface.get_account_nonce(self.keypair.ss58_address)
 
                     # create signed extrinsic
-                    extrinsic = _interface.create_signed_extrinsic(
-                        call=call, keypair=self.keypair, nonce=nonce
-                    )
+                    extrinsic = _interface.create_signed_extrinsic(call=call, keypair=self.keypair, nonce=nonce)
 
-                    receipt = _interface.submit_extrinsic(
-                        extrinsic, wait_for_inclusion=True
-                    )
+                    receipt = _interface.submit_extrinsic(extrinsic, wait_for_inclusion=True)
                     return receipt
             except SubstrateRequestException as e:
                 logger.error("Failed to send: {}".format(e))
@@ -937,7 +853,6 @@ class Hypertensor:
         :param subnet_id: to subnet ID
         :param shares_to_be_removed: sahares to be removed
         """
-
         # compose call
         call = self.interface.compose_call(
             call_module="Network",
@@ -956,13 +871,9 @@ class Hypertensor:
                     nonce = _interface.get_account_nonce(self.keypair.ss58_address)
 
                     # create signed extrinsic
-                    extrinsic = _interface.create_signed_extrinsic(
-                        call=call, keypair=self.keypair, nonce=nonce
-                    )
+                    extrinsic = _interface.create_signed_extrinsic(call=call, keypair=self.keypair, nonce=nonce)
 
-                    receipt = _interface.submit_extrinsic(
-                        extrinsic, wait_for_inclusion=True
-                    )
+                    receipt = _interface.submit_extrinsic(extrinsic, wait_for_inclusion=True)
                     return receipt
             except SubstrateRequestException as e:
                 logger.error("Failed to send: {}".format(e))
@@ -982,7 +893,6 @@ class Hypertensor:
         :param subnet_id: to subnet ID
         :param amount: TENSOR to be added
         """
-
         # compose call
         call = self.interface.compose_call(
             call_module="Network",
@@ -1001,13 +911,9 @@ class Hypertensor:
                     nonce = _interface.get_account_nonce(self.keypair.ss58_address)
 
                     # create signed extrinsic
-                    extrinsic = _interface.create_signed_extrinsic(
-                        call=call, keypair=self.keypair, nonce=nonce
-                    )
+                    extrinsic = _interface.create_signed_extrinsic(call=call, keypair=self.keypair, nonce=nonce)
 
-                    receipt = _interface.submit_extrinsic(
-                        extrinsic, wait_for_inclusion=True
-                    )
+                    receipt = _interface.submit_extrinsic(extrinsic, wait_for_inclusion=True)
                     return receipt
             except SubstrateRequestException as e:
                 logger.error("Failed to send: {}".format(e))
@@ -1025,7 +931,6 @@ class Hypertensor:
         :param hotkey: Hotkey
         :param new_coldkey: New coldkey
         """
-
         # compose call
         call = self.interface.compose_call(
             call_module="Network",
@@ -1044,13 +949,9 @@ class Hypertensor:
                     nonce = _interface.get_account_nonce(self.keypair.ss58_address)
 
                     # create signed extrinsic
-                    extrinsic = _interface.create_signed_extrinsic(
-                        call=call, keypair=self.keypair, nonce=nonce
-                    )
+                    extrinsic = _interface.create_signed_extrinsic(call=call, keypair=self.keypair, nonce=nonce)
 
-                    receipt = _interface.submit_extrinsic(
-                        extrinsic, wait_for_inclusion=True
-                    )
+                    receipt = _interface.submit_extrinsic(extrinsic, wait_for_inclusion=True)
                     return receipt
             except SubstrateRequestException as e:
                 logger.error("Failed to send: {}".format(e))
@@ -1068,7 +969,6 @@ class Hypertensor:
         :param old_hotkey: Old hotkey
         :param new_hotkey: New hotkey
         """
-
         # compose call
         call = self.interface.compose_call(
             call_module="Network",
@@ -1087,13 +987,9 @@ class Hypertensor:
                     nonce = _interface.get_account_nonce(self.keypair.ss58_address)
 
                     # create signed extrinsic
-                    extrinsic = _interface.create_signed_extrinsic(
-                        call=call, keypair=self.keypair, nonce=nonce
-                    )
+                    extrinsic = _interface.create_signed_extrinsic(call=call, keypair=self.keypair, nonce=nonce)
 
-                    receipt = _interface.submit_extrinsic(
-                        extrinsic, wait_for_inclusion=True
-                    )
+                    receipt = _interface.submit_extrinsic(extrinsic, wait_for_inclusion=True)
                     return receipt
             except SubstrateRequestException as e:
                 logger.error("Failed to send: {}".format(e))
@@ -1116,9 +1012,7 @@ class Hypertensor:
         def make_query():
             try:
                 with self.interface as _interface:
-                    result = _interface.query(
-                        "Network", "SubnetNodesData", [subnet_id, subnet_node_id]
-                    )
+                    result = _interface.query("Network", "SubnetNodesData", [subnet_id, subnet_node_id])
                     return result
             except SubstrateRequestException as e:
                 logger.error("Failed to get rpc request: {}".format(e))
@@ -1141,9 +1035,7 @@ class Hypertensor:
         def make_query():
             try:
                 with self.interface as _interface:
-                    result = _interface.query(
-                        "Network", "HotkeySubnetNodeId", [subnet_id, hotkey]
-                    )
+                    result = _interface.query("Network", "HotkeySubnetNodeId", [subnet_id, hotkey])
                     return result
             except SubstrateRequestException as e:
                 logger.error("Failed to get rpc request: {}".format(e))
@@ -1186,9 +1078,7 @@ class Hypertensor:
         def make_query():
             try:
                 with self.interface as _interface:
-                    result = _interface.query(
-                        "Network", "SubnetNodeIdHotkey", [subnet_id, hotkey]
-                    )
+                    result = _interface.query("Network", "SubnetNodeIdHotkey", [subnet_id, hotkey])
                     return result.value["data"]["free"]
             except SubstrateRequestException as e:
                 logger.error("Failed to get rpc request: {}".format(e))
@@ -1227,9 +1117,7 @@ class Hypertensor:
         def make_query():
             try:
                 with self.interface as _interface:
-                    result = _interface.query(
-                        "Network", "AccountSubnetStake", [address, subnet_id]
-                    )
+                    result = _interface.query("Network", "AccountSubnetStake", [address, subnet_id])
                     return result
             except SubstrateRequestException as e:
                 logger.error("Failed to get rpc request: {}".format(e))
@@ -1395,9 +1283,7 @@ class Hypertensor:
         def make_query():
             try:
                 with self.interface as _interface:
-                    result = _interface.query(
-                        "Network", "SubnetElectedValidator", [subnet_id, epoch]
-                    )
+                    result = _interface.query("Network", "SubnetElectedValidator", [subnet_id, epoch])
                     return result
             except SubstrateRequestException as e:
                 logger.error("Failed to get rpc request: {}".format(e))
@@ -1415,9 +1301,7 @@ class Hypertensor:
         def make_query():
             try:
                 with self.interface as _interface:
-                    result = _interface.query(
-                        "Network", "OverwatchEpochLengthMultiplier"
-                    )
+                    result = _interface.query("Network", "OverwatchEpochLengthMultiplier")
                     return result
             except SubstrateRequestException as e:
                 logger.error("Failed to get rpc request: {}".format(e))
@@ -1456,9 +1340,7 @@ class Hypertensor:
         def make_query():
             try:
                 with self.interface as _interface:
-                    result = _interface.query(
-                        "Network", "SubnetConsensusSubmission", [subnet_id, epoch]
-                    )
+                    result = _interface.query("Network", "SubnetConsensusSubmission", [subnet_id, epoch])
                     return result
             except SubstrateRequestException as e:
                 logger.error("Failed to get rpc request: {}".format(e))
@@ -1553,10 +1435,7 @@ class Hypertensor:
         def make_query():
             try:
                 # Ensure interface is connected
-                if (
-                    not self.interface.websocket
-                    or not self.interface.websocket.connected
-                ):
+                if not self.interface.websocket or not self.interface.websocket.connected:
                     self.interface.connect_websocket()
 
                 # Ensure runtime metadata is loaded
@@ -1593,9 +1472,7 @@ class Hypertensor:
         def make_query():
             try:
                 with self.interface as _interface:
-                    result = _interface.query(
-                        "Network", "SubnetConsensusSubmission", [subnet_id, epoch]
-                    )
+                    result = _interface.query("Network", "SubnetConsensusSubmission", [subnet_id, epoch])
                     return result
             except SubstrateRequestException as e:
                 logger.error("Failed to get rpc request: {}".format(e))
@@ -1641,9 +1518,7 @@ class Hypertensor:
         def make_rpc_request():
             try:
                 with self.interface as _interface:
-                    data = _interface.rpc_request(
-                        method="network_getSubnetNodes", params=[subnet_id]
-                    )
+                    data = _interface.rpc_request(method="network_getSubnetNodes", params=[subnet_id])
                     return data
             except SubstrateRequestException as e:
                 logger.error("Failed to get rpc request: {}".format(e))
@@ -1657,9 +1532,7 @@ class Hypertensor:
         def make_rpc_request():
             try:
                 with self.interface as _interface:
-                    data = _interface.rpc_request(
-                        method="network_getAllSubnetsInfo", params=[]
-                    )
+                    data = _interface.rpc_request(method="network_getAllSubnetsInfo", params=[])
                     return data
             except SubstrateRequestException as e:
                 logger.error("Failed to get rpc request: {}".format(e))
@@ -1674,9 +1547,7 @@ class Hypertensor:
         def make_rpc_request():
             try:
                 with self.interface as _interface:
-                    data = _interface.rpc_request(
-                        method="network_getSubnetNodesInfo", params=[subnet_id]
-                    )
+                    data = _interface.rpc_request(method="network_getSubnetNodesInfo", params=[subnet_id])
                     return data
             except SubstrateRequestException as e:
                 logger.error("Failed to get rpc request: {}".format(e))
@@ -1690,9 +1561,7 @@ class Hypertensor:
         def make_rpc_request():
             try:
                 with self.interface as _interface:
-                    data = _interface.rpc_request(
-                        method="network_getAllSubnetNodesInfo", params=[]
-                    )
+                    data = _interface.rpc_request(method="network_getAllSubnetNodesInfo", params=[])
                     return data
             except SubstrateRequestException as e:
                 logger.error("Failed to get rpc request: {}".format(e))
@@ -1714,9 +1583,7 @@ class Hypertensor:
         def make_rpc_request():
             try:
                 with self.interface as _interface:
-                    subnet_nodes_data = _interface.rpc_request(
-                        method="network_getBootnodes", params=[subnet_id]
-                    )
+                    subnet_nodes_data = _interface.rpc_request(method="network_getBootnodes", params=[subnet_id])
                     return subnet_nodes_data
             except SubstrateRequestException as e:
                 logger.error("Failed to get rpc request: {}".format(e))
@@ -1728,9 +1595,7 @@ class Hypertensor:
         def make_rpc_request():
             try:
                 with self.interface as _interface:
-                    data = _interface.rpc_request(
-                        method="network_getColdkeySubnetNodesInfo", params=[coldkey]
-                    )
+                    data = _interface.rpc_request(method="network_getColdkeySubnetNodesInfo", params=[coldkey])
                     return data
             except SubstrateRequestException as e:
                 logger.error("Failed to get rpc request: {}".format(e))
@@ -1742,9 +1607,7 @@ class Hypertensor:
         def make_rpc_request():
             try:
                 with self.interface as _interface:
-                    data = _interface.rpc_request(
-                        method="network_getColdkeyStakes", params=[coldkey]
-                    )
+                    data = _interface.rpc_request(method="network_getColdkeyStakes", params=[coldkey])
                     return data
             except SubstrateRequestException as e:
                 logger.error("Failed to get rpc request: {}".format(e))
@@ -1756,9 +1619,7 @@ class Hypertensor:
         def make_rpc_request():
             try:
                 with self.interface as _interface:
-                    data = _interface.rpc_request(
-                        method="network_getDelegateStakes", params=[account_id]
-                    )
+                    data = _interface.rpc_request(method="network_getDelegateStakes", params=[account_id])
                     return data
             except SubstrateRequestException as e:
                 logger.error("Failed to get rpc request: {}".format(e))
@@ -1770,9 +1631,7 @@ class Hypertensor:
         def make_rpc_request():
             try:
                 with self.interface as _interface:
-                    data = _interface.rpc_request(
-                        method="network_getNodeDelegateStakes", params=[account_id]
-                    )
+                    data = _interface.rpc_request(method="network_getNodeDelegateStakes", params=[account_id])
                     return data
             except SubstrateRequestException as e:
                 logger.error("Failed to get rpc request: {}".format(e))
@@ -1863,9 +1722,7 @@ class Hypertensor:
         def make_rpc_request():
             try:
                 with self.interface as _interface:
-                    data = _interface.rpc_request(
-                        method="network_getMinimumDelegateStake", params=[subnet_id]
-                    )
+                    data = _interface.rpc_request(method="network_getMinimumDelegateStake", params=[subnet_id])
                     return data
             except SubstrateRequestException as e:
                 logger.error("Failed to get rpc request: {}".format(e))
@@ -1961,13 +1818,8 @@ class Hypertensor:
                     data = None
                     events = _interface.get_events(block_hash=block_hash)
                     for event in events:
-                        if (
-                            event["event"]["module_id"] == "Network"
-                            and event["event"]["event_id"] == "RewardResult"
-                        ):
-                            subnet_id, attestation_percentage = event["event"][
-                                "attributes"
-                            ]
+                        if event["event"]["module_id"] == "Network" and event["event"]["event_id"] == "RewardResult":
+                            subnet_id, attestation_percentage = event["event"]["attributes"]
                             if subnet_id == target_subnet_id:
                                 data = subnet_id, attestation_percentage
                                 break
@@ -2010,9 +1862,7 @@ class Hypertensor:
         epoch_length = int(str(self.get_epoch_length()))
 
         if current_block < slot:
-            return EpochData.zero(
-                current_block=current_block, epoch_length=epoch_length
-            )
+            return EpochData.zero(current_block=current_block, epoch_length=epoch_length)
 
         blocks_since_start = current_block - slot
         epoch = blocks_since_start // epoch_length
@@ -2078,18 +1928,14 @@ class Hypertensor:
         current_epoch = epoch_data.epoch
         cutoff_percentage = float(self.get_overwatch_commit_cutoff_percent() / 1e18)
         block_increase_cutoff = overwatch_epoch_length * cutoff_percentage
-        epoch_cutoff_block = (
-            overwatch_epoch_length * current_epoch + block_increase_cutoff
-        )
+        epoch_cutoff_block = overwatch_epoch_length * current_epoch + block_increase_cutoff
         return epoch_data.block < epoch_cutoff_block
 
     """
   Formatted
   """
 
-    def get_elected_validator_node_formatted(
-        self, subnet_id: int, subnet_epoch: int
-    ) -> Optional["SubnetNode"]:
+    def get_elected_validator_node_formatted(self, subnet_id: int, subnet_epoch: int) -> Optional["SubnetNode"]:
         """
         Get formatted list of subnet nodes classified as Validator
 
@@ -2106,9 +1952,7 @@ class Hypertensor:
         except Exception:
             return None
 
-    def get_validators_and_attestors_formatted(
-        self, subnet_id: int
-    ) -> Optional[List["SubnetNodeInfo"]]:
+    def get_validators_and_attestors_formatted(self, subnet_id: int) -> Optional[List["SubnetNodeInfo"]]:
         """
         Get formatted list of subnet nodes classified as Validator
 
@@ -2178,9 +2022,7 @@ class Hypertensor:
         except Exception:
             return None
 
-    def get_formatted_get_subnet_node_info(
-        self, subnet_id: int, subnet_node_id: int
-    ) -> Optional["SubnetNodeInfo"]:
+    def get_formatted_get_subnet_node_info(self, subnet_id: int, subnet_node_id: int) -> Optional["SubnetNodeInfo"]:
         """
         Get formatted list of subnet nodes classified as Validator
 
@@ -2248,9 +2090,7 @@ class Hypertensor:
         except Exception:
             return None
 
-    def get_coldkey_subnet_nodes_info_formatted(
-        self, coldkey: str
-    ) -> List["SubnetNodeInfo"]:
+    def get_coldkey_subnet_nodes_info_formatted(self, coldkey: str) -> List["SubnetNodeInfo"]:
         """
         Get formatted list of subnet nodes classified as Validator
 
@@ -2284,9 +2124,7 @@ class Hypertensor:
         except Exception:
             return None
 
-    def get_delegate_stakes_formatted(
-        self, account_id: str
-    ) -> List["DelegateStakeInfo"]:
+    def get_delegate_stakes_formatted(self, account_id: str) -> List["DelegateStakeInfo"]:
         """
         Get formatted list of subnet nodes classified as Validator
 
@@ -2303,9 +2141,7 @@ class Hypertensor:
         except Exception:
             return None
 
-    def get_node_delegate_stakes_formatted(
-        self, account_id: str
-    ) -> List["NodeDelegateStakeInfo"]:
+    def get_node_delegate_stakes_formatted(self, account_id: str) -> List["NodeDelegateStakeInfo"]:
         """
         Get formatted list of subnet nodes classified as Validator
 
@@ -2316,17 +2152,13 @@ class Hypertensor:
         try:
             result = self.get_node_delegate_stakes(account_id)
 
-            node_delegate_stakes = NodeDelegateStakeInfo.list_from_vec_u8(
-                result["result"]
-            )
+            node_delegate_stakes = NodeDelegateStakeInfo.list_from_vec_u8(result["result"])
 
             return node_delegate_stakes
         except Exception:
             return None
 
-    def get_consensus_data_formatted(
-        self, subnet_id: int, epoch: int
-    ) -> Optional[ConsensusData]:
+    def get_consensus_data_formatted(self, subnet_id: int, epoch: int) -> Optional[ConsensusData]:
         """
         Get formatted list of subnet nodes classified as Validator
 
@@ -2365,14 +2197,11 @@ class Hypertensor:
             return [
                 node
                 for node in subnet_nodes
-                if subnet_node_class_to_enum(node.classification["node_class"]).value
-                >= min_class.value
+                if subnet_node_class_to_enum(node.classification["node_class"]).value >= min_class.value
                 and node.classification["start_epoch"] <= subnet_epoch
             ]
         except Exception as e:
-            logger.error(
-                f"Error get_min_class_subnet_nodes_formatted={e}", exc_info=True
-            )
+            logger.error(f"Error get_min_class_subnet_nodes_formatted={e}", exc_info=True)
             return []
 
     # def get_subnet_node_info_formatted(self, subnet_id: int, subnet_node_id: int) -> Optional["SubnetNodeInfo"]:
@@ -2405,7 +2234,6 @@ class Hypertensor:
         :param self.keypair: self.keypair of extrinsic caller. Must be a subnet_node in the subnet
         :param subnet_id: subnet ID
         """
-
         # compose call
         call = self.interface.compose_call(
             call_module="Network",
@@ -2418,17 +2246,13 @@ class Hypertensor:
         )
 
         # create signed extrinsic
-        extrinsic = self.interface.create_signed_extrinsic(
-            call=call, keypair=self.keypair
-        )
+        extrinsic = self.interface.create_signed_extrinsic(call=call, keypair=self.keypair)
 
         @retry(wait=wait_fixed(BLOCK_SECS + 1), stop=stop_after_attempt(4))
         def submit_extrinsic():
             try:
                 with self.interface as _interface:
-                    receipt = _interface.submit_extrinsic(
-                        extrinsic, wait_for_inclusion=True
-                    )
+                    receipt = _interface.submit_extrinsic(extrinsic, wait_for_inclusion=True)
                     return receipt
             except SubstrateRequestException as e:
                 logger.error("Failed to send: {}".format(e))

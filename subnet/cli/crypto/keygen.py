@@ -5,7 +5,6 @@ from libp2p.crypto.ed25519 import create_new_key_pair as create_new_ed25519_key_
 from libp2p.peer.id import ID as PeerID
 from libp2p.peer.pb import crypto_pb2
 
-
 # keygen --path test-rsa.key --bootstrap_path test-b-rsa.key --client_path test-c-rsa.key --key_type rsa
 # keygen --path test-ed25519.key --bootstrap_path test-b-ed25519.key --client_path test-c-ed25519.key --key_type ed25519
 

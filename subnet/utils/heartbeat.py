@@ -1,11 +1,16 @@
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 import json
 import logging
-from subnet.hypertensor.mock.local_chain_functions import LocalMockHypertensor
-from subnet.hypertensor.chain_functions import Hypertensor
-from subnet.db.database import RocksDB
-import base58
+
+from pydantic import BaseModel, field_validator
 import trio
+
+from libp2p.custom_types import TProtocol
+from libp2p.pubsub.pubsub import Pubsub
+from subnet.hypertensor.chain_functions import Hypertensor
+from subnet.hypertensor.config import SECONDS_PER_EPOCH
+from subnet.hypertensor.mock.local_chain_functions import LocalMockHypertensor
+from subnet.utils.subnet_info_tracker import SubnetInfoTracker
 
 # Configure logging
 logging.basicConfig(
@@ -16,6 +21,42 @@ logging.basicConfig(
 logger = logging.getLogger("server/1.0.0")
 
 HEARTBEAT_TOPIC = "heartbeat"
+
+
+# class HeartbeatData(BaseModel):
+#     epoch: int
+#     subnet_id: int
+#     subnet_node_id: int
+
+#     def __init__(self, hypertensor: Hypertensor | LocalMockHypertensor, subnet_id: int):
+#         self.hypertensor = hypertensor
+#         self.subnet_id = subnet_id
+
+#     @field_validator("epoch")
+#     def check_epoch(cls, v):
+#         epoch = cls.hypertensor.get_subnet_epoch_data(cls.subnet_id).epoch
+#         if v != epoch:
+#             raise ValueError(f"Epoch must be {epoch}")
+#         return v
+
+#     @field_validator("subnet_id")
+#     def check_subnet_id(cls, v):
+#         if v != cls.subnet_id:
+#             raise ValueError(f"Subnet ID must be {cls.subnet_id}")
+#         return v
+
+#     def to_json(self) -> str:
+#         """Serialize to JSON string."""
+#         return json.dumps(asdict(self))
+
+#     def to_bytes(self) -> bytes:
+#         """Serialize to bytes for pubsub."""
+#         return self.to_json().encode("utf-8")
+
+#     @classmethod
+#     def from_json(cls, data: str) -> "HeartbeatData":
+#         """Deserialize from JSON string."""
+#         return cls(**json.loads(data))
 
 
 @dataclass
@@ -38,80 +79,73 @@ class HeartbeatData:
         return cls(**json.loads(data))
 
 
-async def receive_loop(
-    subscription,
-    termination_event,
-    hypertensor: Hypertensor | LocalMockHypertensor,
-    db: RocksDB,
-):
-    logger.info("Starting receive loop")
-    while not termination_event.is_set():
-        try:
-            message = await subscription.get()
-            logger.info(f"Received full message: {message}")
-            logger.info(f"Received topicIDs: {message.topicIDs}")
-
-            from_peer = base58.b58encode(message.from_id).decode()
-            logger.info(f"From peer: {from_peer}")
-            logger.info(f"Received message: {message.data.decode('utf-8')}")
-
-            if message.topicIDs[0] == HEARTBEAT_TOPIC:
-                logger.info("Message topic is heartbeat")
-                epoch_data = hypertensor.get_epoch_data()
-                epoch = epoch_data.epoch
-                heartbeat_data = HeartbeatData.from_json(message.data.decode("utf-8"))
-                logger.info(f"Heartbeat data: {heartbeat_data}")
-
-                exists = (
-                    db.nmap_get(HEARTBEAT_TOPIC, f"{epoch}:{from_peer}") is not None
-                )
-
-                if exists:
-                    logger.info(
-                        f"Heartbeat already exists for epoch: {epoch}, peer: {from_peer}"
-                    )
-                    continue
-
-                db.nmap_set(
-                    HEARTBEAT_TOPIC,
-                    f"{epoch}:{from_peer}",
-                    message.data.decode("utf-8"),
-                )
-                logger.info(
-                    f"Heartbeat stored under nmap key {HEARTBEAT_TOPIC}:{epoch}:{from_peer}"
-                )
-
-        except Exception:
-            logger.exception("Error in receive loop")
-            await trio.sleep(1)
-
-
 async def publish_loop(
-    pubsub,
-    topic,
-    termination_event,
-    subnet_id,
-    subnet_node_id,
-    hypertensor: Hypertensor | LocalMockHypertensor,
+    pubsub: Pubsub,
+    topic: TProtocol,
+    termination_event: trio.Event,
+    subnet_id: int,
+    subnet_node_id: int,
+    subnet_info_tracker: SubnetInfoTracker,
+    hypertensor: LocalMockHypertensor | Hypertensor,
 ):
     """Continuously read input from user and publish to the topic."""
     logger.info("Starting publish loop...")
 
     await trio.sleep(1)
 
+    last_epoch = None
+
     while not termination_event.is_set():
         try:
-            epoch_data = hypertensor.get_epoch_data()
-            epoch = epoch_data.epoch
-            seconds_remaining = epoch_data.seconds_remaining
-            logger.info(f"Epoch: {epoch}, Seconds remaining: {seconds_remaining}")
-            # Use trio's run_sync_in_worker_thread to avoid blocking the event loop
-            # message = f"{MESSAGE} {i}"
-            message = HeartbeatData(epoch, subnet_id, subnet_node_id).to_bytes()
+            # current_epoch = subnet_info_tracker.epoch_data.epoch
+            current_epoch = hypertensor.get_subnet_epoch_data(subnet_info_tracker.slot).epoch
+
+            # One heartbeat per epoch
+            # if current_epoch != last_epoch:
+            last_epoch = current_epoch
+
+            message = HeartbeatData(current_epoch, subnet_id, subnet_node_id).to_bytes()
+
             logger.info(f"Publishing message: {message}")
             await pubsub.publish(topic, message)
             logger.info(f"Published: {message}")
-            await trio.sleep(10)
+
+            # await trio.sleep(
+            #     subnet_info_tracker.get_seconds_remaining_until_next_epoch() + 0.5
+            # )
+
+            # Run heartbeat 4 times per epoch
+            # await trio.sleep(SECONDS_PER_EPOCH / 4)
+            await trio.sleep(3)
         except Exception:
             logger.exception("Error in publish loop")
             await trio.sleep(1)  # Avoid tight loop on error
+
+    # last_epoch = None
+    # heartbeats_per_epoch = 4
+    # total_epoch_heartbeats = 0
+
+    # while not termination_event.is_set():
+    #     try:
+    #         # current_epoch = subnet_info_tracker.epoch_data.epoch
+    #         current_epoch = hypertensor.get_subnet_epoch_data(
+    #             subnet_info_tracker.slot
+    #         ).epoch
+
+    #         if total_epoch_heartbeats < heartbeats_per_epoch:
+    #             total_epoch_heartbeats += 1
+    #             if current_epoch != last_epoch:
+    #                 total_epoch_heartbeats = 0
+    #                 last_epoch = current_epoch
+
+    #             message = HeartbeatData(
+    #                 current_epoch, subnet_id, subnet_node_id
+    #             ).to_bytes()
+
+    #             await pubsub.publish(topic, message)
+    #             logger.info(f"Published: {message}")
+
+    #         await trio.sleep(SECONDS_PER_EPOCH / heartbeats_per_epoch)
+    #     except Exception:
+    #         logger.exception("Error in publish loop")
+    #         await trio.sleep(1)  # Avoid tight loop on error
