@@ -1,11 +1,11 @@
 import argparse
+import logging
 import os
 from pathlib import Path
 
 from dotenv import load_dotenv
 
 from subnet.hypertensor.chain_functions import Hypertensor, KeypairFrom
-import logging
 
 load_dotenv(os.path.join(Path.cwd(), ".env"))
 
@@ -26,7 +26,7 @@ Alith (register with Alith as owner of subnet):
 
 Initial coldkeys (See hypertensor/README.md): Alith, Baltathar, Charleth, Dorothy
 
-register-subnet \
+python -m subnet.cli.hypertensor.subnet.register \
 --max_cost 100.00 \
 --name subnet-1 \
 --repo github.com/subnet-1 \
@@ -39,8 +39,28 @@ register-subnet \
 --initial_coldkey 0x3Cd0A705a2DC65e5b1E1205896BaA2be8A07c6e0 1 \
 --initial_coldkey 0x798d4Ba9baf0064Ec19eB4F0a1a45785ae9D6DFc 1 \
 --initial_coldkey 0x773539d4Ac0e786233D90A233654ccEE26a613D9 1 \
+--initial_coldkey 0xFf64d3F6efE2317EE2807d223a0Bdc4c0c49dfDB 1 \
 --key_types "Rsa" \
---bootnodes "p2p/127.0.0.1/tcp" \
+--bootnode 12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
+--private_key "0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133" \
+--local_rpc
+
+register_subnet \
+--max_cost 100.00 \
+--name subnet-1 \
+--repo github.com/subnet-1 \
+--description "artificial intelligence" \
+--misc "cool subnet" \
+--min_stake 100.00 \
+--max_stake  1000.00 \
+--delegate_stake_percentage 0.1 \
+--initial_coldkey 0xf24FF3a9CF04c71Dbc94D0b566f7A27B94566cac 1 \
+--initial_coldkey 0x3Cd0A705a2DC65e5b1E1205896BaA2be8A07c6e0 1 \
+--initial_coldkey 0x798d4Ba9baf0064Ec19eB4F0a1a45785ae9D6DFc 1 \
+--initial_coldkey 0x773539d4Ac0e786233D90A233654ccEE26a613D9 1 \
+--initial_coldkey 0xFf64d3F6efE2317EE2807d223a0Bdc4c0c49dfDB 1 \
+--key_types "Rsa" \
+--bootnode 12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
 --private_key "0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133" \
 --local_rpc
 
@@ -67,7 +87,14 @@ def main():
         required=True
     )
     parser.add_argument("--key_types", type=str, nargs='+', required=True, help="Key type of subnet signature system")
-    parser.add_argument("--bootnodes", type=str, nargs='+', required=True, help="Key type of subnet signature system")
+    parser.add_argument(
+        "--bootnode",
+        action="append",
+        nargs=2,
+        metavar=("PEER_ID", "MULTIADDRESS"),
+        help="Specify a bootnode peer ID and multiaddress pair",
+        required=True
+    )
     parser.add_argument("--local_rpc", action="store_true", help="[Testing] Run in local RPC mode, uses LOCAL_RPC")
     parser.add_argument("--phrase", type=str, required=False, help="[Testing] Coldkey phrase that controls actions which include funds, such as registering, and staking")
     parser.add_argument("--private_key", type=str, required=False, help="[Testing] Hypertensor blockchain private key")
@@ -102,10 +129,11 @@ def main():
     delegate_stake_percentage = 1e18 if args.delegate_stake_percentage > 1.0 else int(args.delegate_stake_percentage * 1e18)
     assert delegate_stake_percentage <= 0.95e18, "delegate_stake_percentage must be less than or equal to 95%"
     initial_coldkeys = [(ck, int(num)) for ck, num in args.initial_coldkey]
-    initial_coldkeys = sorted(set(initial_coldkeys), key=lambda x: x[0])
+    initial_coldkeys = sorted(set(initial_coldkeys), key=lambda x: int(x[0], 16))
+
     assert len(initial_coldkeys) >= 3, "At least 3 initial coldkeys must be provided, See MinSubnetNodes in the Hypertensor Network pallet"
     key_types = args.key_types
-    bootnodes = args.bootnodes
+    bootnodes = [(peer_id, multiaddr) for peer_id, multiaddr in args.bootnode]
 
     try:
         receipt = hypertensor.register_subnet(

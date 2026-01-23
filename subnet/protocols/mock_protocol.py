@@ -2,25 +2,26 @@
 
 import logging
 
-from libp2p.abc import IHost
 from libp2p.abc import (
+    IHost,
     INetStream,
 )
-from libp2p.peer.id import ID as PeerID
 from libp2p.network.stream.exceptions import (
     StreamEOF,
 )
-from .pb.mock_protocol_pb2 import (
-    MockProtocolMessage,
-)
+from libp2p.peer.id import ID as PeerID
 from libp2p.tools.utils import (
     info_from_p2p_addr,
 )
 from multiaddr import (
     Multiaddr,
 )
-
 import varint
+
+from subnet.protocols.pb.mock_protocol_pb2 import (
+    MockProtocolMessage,
+)
+from subnet.utils.hypertensor.subnet_info_tracker import SubnetInfoTracker
 
 # Configure logging
 logging.basicConfig(
@@ -42,14 +43,17 @@ class MockProtocol:
     Peers register a single rpc_respond handler that processes incoming requests.
     """
 
-    def __init__(self, host: IHost):
+    def __init__(self, host: IHost, subnet_info_tracker: SubnetInfoTracker):
         """
         Initialize the MockProtocol.
 
         Args:
             host: The libp2p host instance
+            subnet_info_tracker: The subnet info tracker instance
+
         """
         self.host = host
+        self.subnet_info_tracker = subnet_info_tracker
 
         # Register the protocol with the host
         self.host.set_stream_handler(PROTOCOL_ID, self._handle_incoming_stream)
@@ -64,11 +68,12 @@ class MockProtocol:
         Call the rpc_respond function on a remote peer.
 
         Args:
-            peer_id: The peer ID to call
-            protobuf: Protobuf serialized data to send
+            destination: The destination peer ID to call
+            msg: Message to send
 
         Returns:
             Response bytes from the remote peer
+
         """
         try:
             logger.info(f"MockProtocol call_remote: {msg}")
@@ -84,9 +89,7 @@ class MockProtocol:
 
             stream = await self.host.new_stream(peer_id, [PROTOCOL_ID])
 
-            logger.info(
-                f"MockProtocol Opened stream to {peer_id}, sending message '{msg}'"
-            )
+            logger.info(f"MockProtocol Opened stream to {peer_id}, sending message '{msg}'")
 
             await stream.write(msg.encode("utf-8"))
             logger.info(f"MockProtocol Sent message to {peer_id}: '{msg}'")
@@ -97,15 +100,11 @@ class MockProtocol:
             # Close the stream
             await stream.close()
 
-            logger.info(
-                f"MockProtocol RPC call to {peer_id} succeeded, received '{response}'"
-            )
+            logger.info(f"MockProtocol RPC call to {peer_id} succeeded, received '{response}'")
             return response
 
         except Exception as e:
-            logger.error(
-                f"MockProtocol Failed to call rpc_respond on peer {peer_id}: {e}"
-            )
+            logger.error(f"MockProtocol Failed to call rpc_respond on peer {peer_id}: {e}")
 
     async def _handle_incoming_stream(self, stream: INetStream) -> None:
         logger.info("MockProtocol _handle_incoming_stream")
@@ -162,14 +161,9 @@ class MockProtocol:
                 message = MockProtocolMessage()
                 message.ParseFromString(msg_bytes)
 
-                logger.debug(
-                    f"Received DHT message from {peer_id}, type: {message.type}"
-                )
+                logger.debug(f"Received DHT message from {peer_id}, type: {message.type}")
 
-                if (
-                    message.type
-                    == MockProtocolMessage.MockProtocolMessageType.FIND_NODE
-                ):
+                if message.type == MockProtocolMessage.MockProtocolMessageType.FIND_NODE:
                     # Handle find_node message
                     pass
 

@@ -1,11 +1,11 @@
 import argparse
+import logging
 import os
 from pathlib import Path
 
 from dotenv import load_dotenv
 
 from subnet.hypertensor.chain_functions import Hypertensor, KeypairFrom
-import logging
 
 load_dotenv(os.path.join(Path.cwd(), ".env"))
 
@@ -165,13 +165,12 @@ def main():
         if receipt.is_success:
             logger.info('✅ Success, triggered events:')
             for event in receipt.triggered_events:
-                print(f'* {event.value}')
                 attributes = event.value.get('attributes')
                 if not attributes and 'event' in event.value:
                     attributes = event.value['event'].get('attributes')
-                
+
                 if attributes and 'subnet_node_id' in attributes:
-                    print(f"Subnet Node ID: {attributes['subnet_node_id']}")
+                    logger.info(f"Subnet Node ID: {attributes['subnet_node_id']}")
         else:
             logger.error(f'⚠️ Extrinsic Failed: {receipt.error_message}')
     except Exception as e:

@@ -29,6 +29,7 @@ dependencies = [
     "multiaddr==0.0.11",
     "pymultihash==0.8.2",
     "python-dotenv>=1.0.1",
+    "rocksdict>=0.3.27",
 ]
 
 [project.optional-dependencies]
@@ -61,6 +62,14 @@ docs = [
     "towncrier>=24,<25",
     "tomli; python_version < '3.11'",
 ]
+test = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-timeout>=2.4.0",
+    "pytest-trio>=0.5.2",
+    "pytest-xdist>=2.4.0",
+    "pytest-mock>=3.15.1",
+]
 
 [project.urls]
 Homepage = "https://github.com/hayotensor/py-libp2p-subnet"
@@ -75,6 +84,7 @@ run_bootnode_v2 = "subnet.cli.run_bootnode_v2:main"
 run_node_v2 = "subnet.cli.run_node_v2:main"
 run_kad_dht = "subnet.cli.run_kad_dht:main"
 keygen = "subnet.cli.crypto.keygen:main"
+keyview = "subnet.cli.crypto.keyview:main"
 register_subnet = "subnet.cli.hypertensor.subnet.register:main"
 activate_subnet = "subnet.cli.hypertensor.subnet.activate:main"
 register_node = "subnet.cli.hypertensor.node.register:main"
@@ -86,21 +96,27 @@ packages = ["subnet"]
 subnet = ["py.typed"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
-python_files = ["test_*.py"]
-python_classes = ["Test*"]
-python_functions = ["test_*"]
-addopts = [
-    "--strict-markers",
-    "--cov=subnet",
-    "--cov-report=term-missing",
-    "--cov-report=xml",
-    "--cov-report=html",
+addopts = "-v --showlocals --durations 50 --maxfail 10"
+log_date_format = "%m-%d %H:%M:%S"
+log_format = "%(levelname)8s  %(asctime)s  %(filename)20s  %(message)s"
+markers = [
+    "slow: mark test as slow",
+    "flaky: mark test as flaky (may fail intermittently)",
 ]
+xfail_strict = true
 
 [tool.ruff]
-line-length = 88
+line-length = 120
 exclude = ["__init__.py", "*_pb2*.py", "*.pyi"]
+
+[tool.ruff.lint]
+select = [
+    "F", # Pyflakes
+    "E", # pycodestyle errors
+    "W", # pycodestyle warnings
+    "I", # isort
+    "D", # pydocstyle
+]
 
 # Ignores from pydocstyle and any other desired ones
 ignore = [
@@ -127,8 +143,7 @@ force-wrap-aliases = true
 combine-as-imports = true
 extra-standard-library = []
 force-sort-within-sections = true
-known-first-party = ["libp2p", "tests"]
-known-third-party = ["anyio", "factory", "lru", "p2pclient", "pytest", "noise"]
+known-first-party = ["subnet", "tests"]
 force-to-top = ["pytest"]
 
 [tool.ruff.format]
@@ -136,7 +151,7 @@ force-to-top = ["pytest"]
 # Options like quote-style = "double" or indent-style = "space" can be set here if needed.
 
 [tool.pyrefly]
-project_includes = ["libp2p", "examples", "tests"]
+project_includes = ["subnet", "tests"]
 project_excludes = [
     "**/.project-template/**",
     "**/docs/conf.py",
@@ -162,18 +177,3 @@ warn_redundant_casts = true
 warn_return_any = false
 warn_unused_configs = true
 warn_unused_ignores = false
-
-[tool.coverage.run]
-source = ["subnet"]
-omit = ["*/tests/*", "*/test_*.py"]
-
-[tool.coverage.report]
-exclude_lines = [
-    "pragma: no cover",
-    "def __repr__",
-    "raise AssertionError",
-    "raise NotImplementedError",
-    "if __name__ == .__main__.:",
-    "if TYPE_CHECKING:",
-    "@abstractmethod",
-]

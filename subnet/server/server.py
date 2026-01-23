@@ -1,59 +1,70 @@
-from typing import List
+from collections.abc import Mapping
+import logging
+from typing import TYPE_CHECKING, List, cast
 
-import sys
+from libp2p import (
+    new_host,
+)
+from libp2p.crypto.keys import KeyPair
+from libp2p.crypto.x25519 import create_new_key_pair as create_new_x25519_key_pair
+from libp2p.custom_types import ISecureTransport, TProtocol
 from libp2p.kad_dht.kad_dht import (
     DHTMode,
     KadDHT,
 )
-from libp2p.peer.id import ID as PeerID
-from libp2p.tools.utils import (
-    info_from_p2p_addr,
-)
-from multiaddr import (
-    Multiaddr,
-)
-import secrets
-import trio
-from libp2p.crypto.secp256k1 import (
-    create_new_key_pair,
-)
-from libp2p import (
-    new_host,
-)
-from collections.abc import (
-    Mapping,
-)
-from libp2p.custom_types import (
-    TProtocol,
-)
-from libp2p.abc import (
-    IHost,
-    ISecureTransport,
-)
-from libp2p.security.noise.transport import (
-    Transport as NoiseTransport,
-)
-from libp2p.crypto.x25519 import create_new_key_pair as create_new_x25519_key_pair
-from subnet.network.pos.pos_transport import (
-    POSTransport,
-    PROTOCOL_ID as POS_PROTOCOL_ID,
-)
-from subnet.network.pos.proof_of_stake import ProofOfStake
-import libp2p.security.secio.transport as secio
+from libp2p.network.swarm import Swarm
+from libp2p.pubsub.gossipsub import GossipSub
+from libp2p.pubsub.pubsub import Pubsub
+from libp2p.records.pubkey import PublicKeyValidator
+from libp2p.records.validator import NamespacedValidator
 from libp2p.security.noise.transport import (
     PROTOCOL_ID as NOISE_PROTOCOL_ID,
     Transport as NoiseTransport,
 )
-from libp2p.security.insecure.transport import (
-    PLAINTEXT_PROTOCOL_ID,
-    InsecureTransport,
-)
-from subnet.utils.bootstrap import connect_to_bootstrap_nodes
+import libp2p.security.secio.transport as secio
+from libp2p.security.secio.transport import Transport as SecioTransport
+from libp2p.tools.async_service import background_trio_service
+import trio
 
-from subnet.protocols.mock_protocol import (
-    MockProtocol,
+from subnet.config import GOSSIPSUB_PROTOCOL_ID
+from subnet.consensus.consensus import Consensus
+from subnet.db.database import RocksDB
+from subnet.hypertensor.chain_functions import Hypertensor
+from subnet.hypertensor.mock.local_chain_functions import LocalMockHypertensor
+from subnet.utils.connection import (
+    demonstrate_random_walk_discovery,
+    maintain_connections,
 )
-import logging
+from subnet.utils.connections.bootstrap import connect_to_bootstrap_nodes
+from subnet.utils.gossipsub.gossip_receiver import GossipReceiver
+from subnet.utils.hypertensor.subnet_info_tracker import SubnetInfoTracker
+from subnet.utils.patches import apply_all_patches
+
+# from subnet.utils.pos.pos_noise_transport import (
+#     PROTOCOL_ID as POS_PROTOCOL_ID,
+#     POSNoiseTransport,
+# )
+from subnet.utils.pos.pos_transport import (
+    PROTOCOL_ID as POS_PROTOCOL_ID,
+    POSTransport,
+)
+from subnet.utils.pos.proof_of_stake import ProofOfStake
+from subnet.utils.protocols.ping import handle_ping
+from subnet.utils.pubsub.custom_score_params import custom_score_params
+from subnet.utils.pubsub.heartbeat import (
+    HEARTBEAT_TOPIC,
+    publish_loop,
+)
+from subnet.utils.pubsub.pubsub_validation import (
+    SyncHeartbeatMsgValidator,
+    SyncPubsubTopicValidator,
+)
+
+if TYPE_CHECKING:
+    from libp2p.network.swarm import Swarm
+
+# Apply patches for stability
+apply_all_patches()
 
 # Configure logging
 logging.basicConfig(
@@ -63,6 +74,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger("server/1.0.0")
 
+PING_PROTOCOL_ID = TProtocol("/ipfs/ping/1.0.0")
+
 
 class Server:
     def __init__(
@@ -70,161 +83,200 @@ class Server:
         *,
         port: int,
         bootstrap_addrs: List[str] | None = None,
+        key_pair: KeyPair,
+        db: RocksDB,
+        subnet_id: int = 0,
+        subnet_node_id: int = 0,
+        hypertensor: Hypertensor | LocalMockHypertensor,
+        is_bootstrap: bool = False,
         **kwargs,
     ):
         self.port = port
         self.bootstrap_addrs = bootstrap_addrs
+        self.key_pair = key_pair
+        self.subnet_id = subnet_id
+        self.subnet_node_id = subnet_node_id
+        self.hypertensor = hypertensor
+        self.db = db
+        self.is_bootstrap = is_bootstrap
 
     async def run(self):
-        """
-        Keep server running forever
-        """
-        try:
-            bootstrap_nodes = []
+        print("running server gossip")
+        from libp2p.utils.address_validation import (
+            get_available_interfaces,
+            get_optimal_binding_address,
+        )
 
-            if self.bootstrap_addrs:
-                for addr in self.bootstrap_addrs:
-                    bootstrap_nodes.append(addr)
+        listen_addrs = get_available_interfaces(self.port)
 
-            logger.info("Connecting to bootstrap nodes: %s", bootstrap_nodes)
+        proof_of_stake = ProofOfStake(
+            subnet_id=self.subnet_id,
+            hypertensor=self.hypertensor,
+            min_class=0,
+        )
 
-            key_pair = create_new_key_pair(secrets.token_bytes(32))
+        pos_noise_transport = POSTransport(
+            transport=NoiseTransport(
+                self.key_pair,
+                noise_privkey=create_new_x25519_key_pair().private_key,
+            ),
+            pos=proof_of_stake,
+        )
 
-            # Generate X25519 keypair for Noise
-            noise_key_pair = create_new_x25519_key_pair()
+        pos_secio_transport = POSTransport(
+            transport=SecioTransport(
+                self.key_pair,
+            ),
+            pos=proof_of_stake,
+        )
 
-            secure_transports_by_protocol: Mapping[TProtocol, ISecureTransport] = {
-                NOISE_PROTOCOL_ID: NoiseTransport(
-                    key_pair, noise_privkey=noise_key_pair.private_key
-                ),
-                TProtocol(secio.ID): secio.Transport(key_pair),
-                TProtocol(PLAINTEXT_PROTOCOL_ID): InsecureTransport(
-                    key_pair, peerstore=None
-                ),
-            }
+        secure_transports_by_protocol: Mapping[TProtocol, ISecureTransport] = {
+            POS_PROTOCOL_ID: pos_noise_transport,
+            TProtocol(secio.ID): pos_secio_transport,
+        }
 
-            # pos_transport = POSTransport(
-            #     noise_transport=NoiseTransport(
-            #         key_pair, noise_privkey=noise_key_pair.private_key
-            #     ),
-            #     pos=None,
-            # )
+        # Create a new libp2p host
+        # host = new_host(key_pair=self.key_pair)
+        host = new_host(key_pair=self.key_pair, sec_opt=secure_transports_by_protocol)
 
-            # secure_transports_by_protocol: Mapping[TProtocol, ISecureTransport] = {
-            #     POS_PROTOCOL_ID: pos_transport,
-            # }
+        # Increase connection limits to prevent aggressive pruning (EOF/0-byte reads)
+        # This is done manually because new_host() only exposes this via QUIC config.
+        # We cast to Swarm so the IDE/type checker recognizes the connection_config.
+        cast("Swarm", host.get_network()).connection_config.max_connections_per_peer = 10
+        # Log available protocols
+        logger.info(f"Host ID: {host.get_id()}")
+        logger.info(
+            f"Host multiselect protocols: {host.get_mux().get_protocols() if hasattr(host, 'get_mux') else 'N/A'}"
+        )
 
-            # host = new_host(key_pair=key_pair, sec_opt=secure_transports_by_protocol)
-            host = new_host(key_pair=key_pair)
+        termination_event = trio.Event()  # Event to signal termination
+        async with host.run(listen_addrs=listen_addrs), trio.open_nursery() as nursery:
+            logger.info(f"Listening address: {listen_addrs}")
+            # Start the peer-store cleanup task, TTL
+            nursery.start_soon(host.get_peerstore().start_cleanup_task, 60)
 
-            # mock_protocol = MockProtocol(host)
+            # Set stream handler for ping protocol (used by overwatch nodes)
+            host.set_stream_handler(PING_PROTOCOL_ID, handle_ping)
 
-            from libp2p.utils.address_validation import (
-                get_available_interfaces,
-                get_optimal_binding_address,
+            dht = KadDHT(
+                host,
+                DHTMode.SERVER,
+                enable_random_walk=True,
+                validator=NamespacedValidator({"pk": PublicKeyValidator()}),
             )
 
-            listen_addrs = get_available_interfaces(self.port)
+            gossipsub = GossipSub(
+                protocols=[GOSSIPSUB_PROTOCOL_ID],
+                degree=3,  # Number of peers to maintain in mesh
+                degree_low=2,  # Lower bound for mesh peers
+                degree_high=4,  # Upper bound for mesh peers
+                direct_peers=None,  # Direct peers
+                time_to_live=60,  # TTL for message cache in seconds
+                gossip_window=2,  # Smaller window for faster gossip
+                gossip_history=5,  # Keep more history
+                heartbeat_initial_delay=2.0,  # Start heartbeats sooner
+                heartbeat_interval=5,  # More frequent heartbeats for testing
+                # score_params=custom_score_params(),
+            )
+            pubsub = Pubsub(host, gossipsub)
 
-            async with (
-                host.run(listen_addrs=listen_addrs),
-                trio.open_nursery() as nursery,
-            ):
-                # Start the peer-store cleanup task
-                nursery.start_soon(host.get_peerstore().start_cleanup_task, 60)
-
-                peer_id = host.get_id().pretty()
-                logger.info(f"Your Peer ID is: {peer_id}")
-
-                # Get all available addresses with peer ID
-                all_addrs = host.get_addrs()
-
-                logger.info("Listener ready, listening on:")
-                for addr in all_addrs:
-                    logger.info(f"{addr}")
-
-                # Use optimal address for the bootstrap command
-                optimal_addr = get_optimal_binding_address(self.port)
-                optimal_addr_with_peer = (
-                    f"{optimal_addr}/p2p/{host.get_id().to_string()}"
+            # Start the background services
+            async with background_trio_service(dht):
+                subnet_info_tracker = SubnetInfoTracker(
+                    termination_event,
+                    self.subnet_id,
+                    self.hypertensor,
+                    epoch_update_intervals=[
+                        0.0,
+                        0.5,
+                    ],  # Update at the start and middle of each subnet epoch
                 )
-                bootstrap_cmd = f"--bootstrap {optimal_addr_with_peer}"
-                logger.info("To connect to this node, use: %s", bootstrap_cmd)
+                nursery.start_soon(subnet_info_tracker.run)
 
-                await connect_to_bootstrap_nodes(host, bootstrap_nodes)
-                self.dht = KadDHT(host=host, mode=DHTMode.SERVER)
-                logger.info("DHT started")
+                # Display the random walk
+                nursery.start_soon(demonstrate_random_walk_discovery, dht, 30)
 
-                # take all peer ids from the host and add them to the dht
-                for id in host.get_peerstore().peer_ids():
-                    await self.dht.routing_table.add_peer(id)
+                async with background_trio_service(pubsub):
+                    async with background_trio_service(gossipsub):
+                        logger.info("Pubsub and GossipSub services started.")
+                        await pubsub.wait_until_ready()
+                        logger.info("Pubsub ready.")
 
-                # Start heartbeat
-                val_key = f"heartbeat/{peer_id}"
-                msg = "Validator"
-                val_data = msg.encode()
+                        pubsub.set_topic_validator(
+                            HEARTBEAT_TOPIC,
+                            SyncPubsubTopicValidator.from_predicate_class(
+                                SyncHeartbeatMsgValidator,
+                                host.get_id(),
+                                subnet_info_tracker,
+                                self.hypertensor,
+                                self.subnet_id,
+                                proof_of_stake,
+                            ).validate,
+                            is_async_validator=False,
+                        )
 
-                logger.info(f"val_key is: {val_key}")
+                        # Connect to bootstrap nodes AFTER starting services
+                        # This avoids AttributeError on incoming streams
+                        if self.bootstrap_addrs is not None:
+                            await connect_to_bootstrap_nodes(host, self.bootstrap_addrs)
 
-                # nursery.start_soon(heartbeat, self.dht, val_key.encode(), val_data)
+                        optimal_addr = get_optimal_binding_address(self.port)
+                        optimal_addr_with_peer = f"{optimal_addr}/p2p/{host.get_id().to_string()}"
+                        logger.info(f"\nRunning peer on {optimal_addr_with_peer}\n")
 
-                # if len(bootstrap_nodes) != 0:
-                #     nursery.start_soon(
-                #         mock_protocol_call,
-                #         mock_protocol,
-                #         Multiaddr(bootstrap_nodes[0]),
-                #     )
+                        for peer_id in host.get_peerstore().peer_ids():
+                            await dht.routing_table.add_peer(peer_id)
 
-                while True:
-                    logger.info(
-                        "Status - Connected peers: %d,"
-                        "Peers in store: %d, Values in store: %d",
-                        len(self.dht.host.get_connected_peers()),
-                        len(self.dht.host.get_peerstore().peer_ids()),
-                        len(self.dht.value_store.store),
-                    )
+                        # Start gossip receiver
+                        gossip_receiver = GossipReceiver(
+                            gossipsub=gossipsub,
+                            pubsub=pubsub,
+                            termination_event=termination_event,
+                            db=self.db,
+                            topics=[HEARTBEAT_TOPIC],
+                            subnet_info_tracker=subnet_info_tracker,
+                            hypertensor=self.hypertensor,
+                        )
+                        nursery.start_soon(gossip_receiver.run)
 
-                    # Detailed logging
-                    connected_peers = self.dht.host.get_connected_peers()
-                    peerstore_peers = self.dht.host.get_peerstore().peer_ids()
-                    value_store = self.dht.value_store.store
+                        # Keep nodes connected to each other
+                        # NOTE: Start this after host, gossipsub, and pubsub are initialized
+                        nursery.start_soon(
+                            maintain_connections,
+                            host,
+                            subnet_info_tracker,
+                            gossipsub,
+                            pubsub,
+                            dht,
+                        )
 
-                    logger.info("=" * 80)
-                    logger.info("STATUS UPDATE")
-                    logger.info("=" * 80)
+                        if not self.is_bootstrap:
+                            # Start heartbeat publisher
+                            nursery.start_soon(
+                                publish_loop,
+                                pubsub,
+                                HEARTBEAT_TOPIC,
+                                termination_event,
+                                self.subnet_id,
+                                self.subnet_node_id,
+                                subnet_info_tracker,
+                                self.hypertensor,
+                            )
 
-                    logger.info(f"Connected peers ({len(connected_peers)}):")
-                    for peer in connected_peers:
-                        logger.info(f"  - {peer.pretty()}")
+                            # Start consensus
+                            consensus = Consensus(
+                                db=self.db,
+                                subnet_id=self.subnet_id,
+                                subnet_node_id=self.subnet_node_id,
+                                subnet_info_tracker=subnet_info_tracker,
+                                hypertensor=self.hypertensor,
+                                skip_activate_subnet=False,
+                                start=True,
+                            )
+                            nursery.start_soon(consensus._main_loop)
 
-                    logger.info(f"\nPeers in store ({len(peerstore_peers)}):")
-                    for peer_id in peerstore_peers:
-                        logger.info(f"  - {peer_id.pretty()}")
+                        await termination_event.wait()
 
-                    logger.info(f"\nValues in store ({len(value_store)}):")
-                    for key, value in value_store.items():
-                        logger.info(f"  - Key: {key}")
-                        logger.info(f"    Value: {value}")
+            nursery.cancel_scope.cancel()
 
-                    logger.info("=" * 80)
-
-                    await trio.sleep(10)
-
-        except Exception as e:
-            logger.error(f"Server node error: {e}", exc_info=True)
-            sys.exit(1)
-
-
-async def heartbeat(dht: KadDHT, key: bytes, value):
-    while True:
-        logger.info("Heartbeat key: %s", key)
-        logger.info("Heartbeat value: %s", value)
-        await dht.put_value(key, value)
-        await trio.sleep(60)
-
-
-async def mock_protocol_call(mock_protocol: MockProtocol, multiaddr: Multiaddr):
-    while True:
-        mp_returned = await mock_protocol.call_remote(multiaddr, "Hello, world!")
-        logger.info("Mock protocol returned: %s", mp_returned)
-        await trio.sleep(60)
+        print("Application shutdown complete")  # Print shutdown message

@@ -2,6 +2,8 @@
 
 import subnet
 
+# pytest tests/test_example.py::test_version -rP
+
 
 def test_version():
     """Test that version is defined."""

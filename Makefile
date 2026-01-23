@@ -20,7 +20,7 @@ install-dev:
 	pip install -e ".[dev]"
 
 test:
-	pytest
+	python -m pytest tests -n auto
 
 lint:
 	black --check subnet tests
@@ -34,24 +34,13 @@ format:
 type:
 	mypy subnet
 
-coverage:
-	pytest --cov=subnet --cov-report=term-missing --cov-report=xml --cov-report=html
-
 fix:
 	python -m ruff check --fix
 
 clean:
-	rm -rf build/
-	rm -rf dist/
-	rm -rf *.egg-info
-	rm -rf .pytest_cache
-	rm -rf .tox
-	rm -rf htmlcov
-	rm -rf .coverage
-	rm -rf coverage.xml
-	find . -type d -name __pycache__ -exec rm -rf {} +
-	find . -type f -name '*.pyc' -delete
-	find . -type f -name '*.pyo' -delete
+	rm -fr build/
+	rm -fr dist/
+	rm -fr *.egg-info
 
 docs:
 	cd docs && make html
