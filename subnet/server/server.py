@@ -38,12 +38,7 @@ from subnet.utils.connection import (
 from subnet.utils.connections.bootstrap import connect_to_bootstrap_nodes
 from subnet.utils.db.database import RocksDB
 from subnet.utils.gossipsub.gossip_receiver import GossipReceiver
-
-# from subnet.utils.hypertensor.subnet_info_tracker import SubnetInfoTracker
-# from subnet.utils.hypertensor.subnet_info_tracker_v2 import SubnetInfoTracker
 from subnet.utils.hypertensor.subnet_info_tracker_v3 import SubnetInfoTracker
-
-# from subnet.utils.hypertensor.subnet_info_tracker_v4 import SubnetInfoTracker
 from subnet.utils.patches import apply_all_patches
 from subnet.utils.pos.pos_transport import (
     PROTOCOL_ID as POS_PROTOCOL_ID,
@@ -163,7 +158,7 @@ class Server:
         # Increase connection limits to prevent aggressive pruning (EOF/0-byte reads)
         # This is done manually because new_host() only exposes this via QUIC config.
         # We cast to Swarm so the IDE/type checker recognizes the connection_config.
-        cast("Swarm", host.get_network()).connection_config.max_connections_per_peer = 10
+        cast("Swarm", host.get_network()).connection_config.max_connections_per_peer = 100
 
         # Log available protocols
         logger.info(f"Host ID: {host.get_id()}")

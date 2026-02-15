@@ -10,10 +10,7 @@ import trio
 from subnet.hypertensor.chain_functions import Hypertensor
 from subnet.hypertensor.mock.local_chain_functions import LocalMockHypertensor
 from subnet.utils.db.database import RocksDB
-
-# from subnet.utils.hypertensor.subnet_info_tracker import SubnetInfoTracker
 from subnet.utils.hypertensor.subnet_info_tracker_v3 import SubnetInfoTracker
-
 from subnet.utils.pubsub.heartbeat import HEARTBEAT_TOPIC, HeartbeatData
 
 logging.basicConfig(
