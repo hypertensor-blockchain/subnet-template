@@ -1,11 +1,14 @@
 import argparse
 import secrets
+import time
 
 from libp2p.crypto.ed25519 import create_new_key_pair as create_new_ed25519_key_pair
 from libp2p.peer.id import ID as PeerID
 from libp2p.peer.pb import crypto_pb2
 
-# keygen --path test.key
+from subnet.utils.crypto.store_key import get_key_pair
+
+# python -m subnet.cli.crypto.keygen --path test.key
 
 
 def main():
@@ -32,6 +35,15 @@ def main():
     # Store main private key
     with open(path, "wb") as f:
         f.write(protobuf.SerializeToString())
+
+    time.sleep(0.5)
+
+    try:
+        key_pair = get_key_pair(path)
+        print("✅ Success")
+    except Exception as e:
+        print(f"❌ Error getting key pair: {e}")
+        print(f"Run `rm -rf {path}` and try again.")
 
 
 if __name__ == "__main__":

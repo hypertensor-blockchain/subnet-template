@@ -1,7 +1,6 @@
 from enum import Enum, unique
 from typing import AsyncIterable
 
-from eth2.beacon.types.blocks import SignedBeaconBlock
 from libp2p.abc import IHost, ISubscriptionAPI
 from libp2p.pubsub.gossipsub import (
     PROTOCOL_ID as GOSSIPSUB_PROTOCOL_ID,

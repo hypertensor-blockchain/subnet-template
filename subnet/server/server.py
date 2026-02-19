@@ -158,7 +158,7 @@ class Server:
         # Increase connection limits to prevent aggressive pruning (EOF/0-byte reads)
         # This is done manually because new_host() only exposes this via QUIC config.
         # We cast to Swarm so the IDE/type checker recognizes the connection_config.
-        cast("Swarm", host.get_network()).connection_config.max_connections_per_peer = 100
+        cast("Swarm", host.get_network()).connection_config.max_connections_per_peer = 12
 
         # Log available protocols
         logger.info(f"Host ID: {host.get_id()}")
