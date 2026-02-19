@@ -80,7 +80,7 @@ def patch_write_msg():
 
 def patch_maybe_delete_peer_record():
     """
-    Patch fixes an issue in Pubsub.write_msg where it crashes a peer with StreamReset when another peer is disconnected.
+    Patch fixes an issue in PeerStore.maybe_delete_peer_record where it crashes a peer with StreamReset when another peer is disconnected.
     """
     _orig_maybe_delete_peer_record = PeerStore.maybe_delete_peer_record
 
