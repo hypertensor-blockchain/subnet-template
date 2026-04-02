@@ -12,7 +12,7 @@ from libp2p.tools.async_service import background_trio_service
 from multiaddr import Multiaddr
 import trio
 
-from subnet.protocols.api_protocol import ApiProtocol
+from subnet.protocols.api_protocol import ApiProtocol, ApiProtocolConfig
 
 
 async def create_tcp_host_pair():
@@ -55,7 +55,7 @@ async def test_api_protocol_unary_and_stream_v1():
     api_routes = {"unary_test": "http://localhost:8080/unary", "stream_test": "http://localhost:8080/stream"}
 
     # Set up API protocols
-    proto1 = ApiProtocol(host_a, api_routes=api_routes)
+    proto1 = ApiProtocol(host_a, config=ApiProtocolConfig(routes=api_routes))
     proto2 = ApiProtocol(host_b)
 
     async with (

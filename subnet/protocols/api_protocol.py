@@ -1,6 +1,8 @@
 """API Protocol for communication between peers that have APIs."""
 
+import json
 import logging
+import os
 
 import httpx
 from libp2p.abc import (
@@ -35,6 +37,31 @@ PROTOCOL_ID = "/subnet/api_protocol/1.0.0"
 MAX_READ_LEN = 2**32 - 1
 
 
+class ApiProtocolConfig:
+    """
+    Configuration for the ApiProtocol.
+    Allows for in-memory routes and an optional persistent JSON config file
+    that can be updated on the fly to change API routes without restarting.
+    """
+
+    def __init__(self, routes: dict = None, config_file: str = None):
+        self.routes = routes or {}
+        self.config_file = config_file
+
+    def get_route(self, route_name: str) -> str | None:
+        """Get the URL for a route. Checks the JSON config file first if it exists, then falls back to memory."""
+        if self.config_file and os.path.exists(self.config_file):
+            try:
+                with open(self.config_file, "r") as f:
+                    file_routes = json.load(f)
+                    if isinstance(file_routes, dict) and route_name in file_routes:
+                        return file_routes[route_name]
+            except Exception as e:
+                logger.warning(f"Failed to read/parse ApiProtocolConfig file {self.config_file}: {e}")
+
+        return self.routes.get(route_name)
+
+
 class ApiProtocol:
     """
     An API protocol for communication between peers. Remote peers call this protocol which
@@ -44,18 +71,17 @@ class ApiProtocol:
     Peers register a single api_respond handler that processes incoming requests.
     """
 
-    def __init__(self, host: IHost, api_routes: dict = None):
+    def __init__(self, host: IHost, config: ApiProtocolConfig = None):
         """
         Initialize the ApiProtocol.
 
         Args:
             host: The libp2p host instance
-            subnet_info_tracker: The subnet info tracker instance
-            api_routes: A dictionary mapping route names to API URLs
+            config: Configuration defining the API routes
 
         """
         self.host = host
-        self.api_routes = api_routes or {}
+        self.config = config or ApiProtocolConfig()
 
         # Register the protocol with the host
         self.host.set_stream_handler(PROTOCOL_ID, self._handle_incoming_stream)
@@ -177,13 +203,13 @@ class ApiProtocol:
                     f"Received API request from {peer_id}, route: {message.route}, type: {message.response_type}"
                 )
 
-                if message.route not in self.api_routes:
+                target_url = self.config.get_route(message.route)
+
+                if not target_url:
                     logger.warning(f"Route not found: {message.route}")
                     await stream.write(b"Route not found")
                     await stream.close()
                     return
-
-                target_url = self.api_routes[message.route]
 
                 async with httpx.AsyncClient() as client:
                     async with client.stream(
