@@ -39,6 +39,7 @@ from subnet.config import GOSSIPSUB_PROTOCOL_ID
 from subnet.consensus.consensus import Consensus
 from subnet.hypertensor.chain_functions import Hypertensor
 from subnet.hypertensor.mock.local_chain_functions import LocalMockHypertensor
+from subnet.telemetry.telemetry import Telemetry
 from subnet.utils.addresses import get_public_ip_interfaces
 from subnet.utils.connection import (
     basic_maintain_connections,
@@ -108,6 +109,7 @@ class Server:
         enable_autotls: bool = False,
         resource_manager: ResourceManager | None = None,
         psk: str | None = None,
+        telemetry: Telemetry | None = None,
         heartbeat_validator_log_level: int = logging.DEBUG,
         gossip_receiver_log_level: int = logging.DEBUG,
         publish_heartbeat_log_level: int = logging.DEBUG,
@@ -135,6 +137,7 @@ class Server:
         self.enable_autotls = enable_autotls
         self.resource_manager = resource_manager
         self.psk = psk
+        self.telemetry = telemetry
         self.peerstore_db_path = peerstore_db_path
         self.heartbeat_validator_log_level = heartbeat_validator_log_level
         self.gossip_receiver_log_level = gossip_receiver_log_level

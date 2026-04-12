@@ -23,6 +23,7 @@ import trio
 from subnet.hypertensor.chain_functions import Hypertensor, KeypairFrom
 from subnet.hypertensor.mock.local_chain_functions import LocalMockHypertensor
 from subnet.server.server import Server
+from subnet.telemetry.telemetry import Telemetry
 from subnet.utils.crypto.store_key import get_key_pair
 from subnet.utils.db.database import RocksDB
 
@@ -459,6 +460,10 @@ def main() -> None:
     else:
         peerstore_db_path = args.peerstore_db_path
 
+    telemetry = None
+    if args.telemetry_url:
+        telemetry = Telemetry(args.telemetry_url, args.subnet_id, args.subnet_node_id, key_pair)
+
     hotkey = None
     start_epoch = None
 
@@ -597,6 +602,7 @@ def main() -> None:
             enable_autotls=args.enable_autotls,
             resource_manager=None,  # TODO: Libp2p resource manager needs work to be implemented
             psk=args.psk,
+            telemetry=telemetry,
             heartbeat_validator_log_level=args.heartbeat_validator_log_level,
             gossip_receiver_log_level=args.gossip_receiver_log_level,
             publish_heartbeat_log_level=args.publish_heartbeat_log_level,
