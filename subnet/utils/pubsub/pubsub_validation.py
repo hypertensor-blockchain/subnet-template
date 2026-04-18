@@ -358,7 +358,9 @@ def _validation_fail(
         ...
 
     if telemetry:
-        telemetry.emit("heartbeat_validation_failed", reason=reason, data=heartbeat_data)
+        telemetry.emit(
+            "heartbeat_validation_failed", from_peer_id=from_peer_id.to_string(), reason=reason, data=heartbeat_data
+        )
 
     return False
 
@@ -385,6 +387,8 @@ async def _async_validation_fail(
 
     # Optionally emit telemetry event
     if telemetry:
-        await telemetry.emit_async("heartbeat_validation_failed", reason=reason, data=heartbeat_data)
+        await telemetry.emit_async(
+            "heartbeat_validation_failed", peer_id=from_peer_id.to_string(), reason=reason, data=heartbeat_data
+        )
 
     return False

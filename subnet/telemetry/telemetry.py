@@ -1,7 +1,9 @@
+import dataclasses
 import json
 import logging
 import socket
 import time
+from typing import Any
 
 from libp2p.crypto.keys import KeyPair
 from libp2p.peer.id import ID
@@ -19,7 +21,7 @@ class Telemetry:
     Features:
     - Non-spinning worker loop with exponential backoff.
     - At-least-once delivery: Messages are only dropped if the worker is hard-killed.
-    - Backpressure: emit() will block if the queue is full, protecting node memory.
+    - Bounded queueing: emit_async() applies backpressure.
 
     Example usage:
 
@@ -75,65 +77,25 @@ class Telemetry:
         self.key_pair = key_pair
         self.peer_id = ID.from_pubkey(key_pair.public_key).to_string()
         self.hostname = socket.gethostname()
+        self.max_queue = max_queue
 
         # Max queue size provides backpressure to the rest of the app
         self._send_channel, self._receive_channel = trio.open_memory_channel(max_queue)
 
-    async def emit_async(self, event: str, **data: any) -> None:
+    async def emit_async(self, event: str, **data: Any) -> None:
         """
         Emits a telemetry event. This is async to allow backpressure if the
         internal channel is full, preventing memory exhaustion in the node.
-
-        Note: Always prefer to use async emit_async() if possible over using emit().
         """
-        print("emit_async", event, data)
-        payload = {
-            "event": event,
-            "timestamp": time.time(),
-            "host": self.hostname,
-            "subnet_id": self.subnet_id,
-            "subnet_node_id": self.subnet_node_id,
-            "peer_id": self.peer_id,
-            "data": data,
-        }
+        payload = self._build_payload(event, data)
         try:
             await self._send_channel.send(payload)
         except trio.EndOfChannel:
             logger.warning("Telemetry channel closed; dropped event: %s", event)
 
-    def emit(self, event: str, **data: any) -> bool:
-        """
-        Synchronous, non-blocking version of emit.
-
-        Use this to instrument code where 'async' is not available.
-
-        Returns:
-
-            True if the event was successfully queued.
-            False if the queue was full or the channel is closed.
-
-        Note: Always prefer to use async emit_async() if possible over using emit().
-        """
-        print("emit", event, data)
-        payload = {
-            "event": event,
-            "timestamp": time.time(),
-            "host": self.hostname,
-            "subnet_id": self.subnet_id,
-            "subnet_node_id": self.subnet_node_id,
-            "peer_id": self.peer_id,
-            "data": data,
-        }
-        try:
-            self._send_channel.send_nowait(payload)
-            return True
-        except (trio.WouldBlock, trio.EndOfChannel):
-            # Best effort: if the queue is full, we drop it to avoid blocking
-            return False
-
     async def run(self) -> None:
         """
-        Worker loop with exponential backoff, message persistence, and cryptographic signing.
+        Worker loop with exponential backoff and retry of the in-flight message.
         """
         backoff = 1
         max_backoff = 120
@@ -149,33 +111,35 @@ class Telemetry:
                     backoff = 1
 
                     # 1. First, retry sending the message that failed previously
-                    # Note: We don't re-sign because it already has a signature from the previous attempt
                     if pending_msg:
-                        logger.info("Retrying pending message %s", pending_msg)
-                        await ws.send_message(json.dumps(pending_msg))
+                        logger.info("Retrying pending telemetry event %s", pending_msg.get("event"))
+                        await ws.send_message(self._dump_json(pending_msg))
+                        logger.info("Telemetry message sent: %s", pending_msg.get("event"))
                         pending_msg = None
 
                     # 2. Now process incoming messages from the channel
                     async for msg in self._receive_channel:
-                        logger.info("Sending message %s", msg)
-                        # Sign the payload before sending
-                        signed_msg = self._sign_payload(msg)
-
-                        # Store in pending_msg before sending. If send_message fails,
-                        # the exception will break the loop, but we still have 'signed_msg' here.
-                        pending_msg = signed_msg
-                        await ws.send_message(json.dumps(signed_msg))
+                        pending_msg = msg
+                        logger.info("Attempting telemetry send: %s", msg.get("event"))
+                        await ws.send_message(self._dump_json(msg))
+                        logger.info("Telemetry message sent: %s", msg.get("event"))
 
                         # Clear only after successful transmission
                         pending_msg = None
 
-            except (ConnectionClosed, OSError, Exception) as e:
+            except (ConnectionClosed, OSError) as e:
                 # We do not clear pending_msg here, so it will be retried on next connection.
                 wait_time = backoff
                 logger.error("Telemetry connection lost (%s). Retrying in %ds...", type(e).__name__, wait_time)
 
                 await trio.sleep(wait_time)
                 # Exponentially increase wait time up to max_backoff
+                backoff = min(backoff * 2, max_backoff)
+            except Exception:
+                wait_time = backoff
+                logger.exception("Telemetry worker failed while processing an event. Retrying in %ds...", wait_time)
+
+                await trio.sleep(wait_time)
                 backoff = min(backoff * 2, max_backoff)
 
     def _sign_payload(self, payload: dict) -> dict:
@@ -184,16 +148,69 @@ class Telemetry:
         Ensures the telemetry endpoint can verify the sender's identity.
         """
         # 1. Create a canonical JSON string (keys sorted) for deterministic signing
-        canonical_data = json.dumps(payload, sort_keys=True).encode()
+        canonical_data = self._dump_json(payload, sort_keys=True).encode()
 
         # 2. Sign with the private key
         signature = self.key_pair.private_key.sign(canonical_data)
 
         # 3. Add verification data to the payload
-        payload["signature"] = signature.hex()
-        payload["pubkey"] = self.key_pair.public_key.serialize().hex()
+        signed_payload = dict(payload)
+        signed_payload["signature"] = signature.hex()
+        signed_payload["pubkey"] = self.key_pair.public_key.serialize().hex()
 
-        return payload
+        return signed_payload
+
+    def _build_payload(self, event: str, data: dict[str, Any]) -> dict[str, Any]:
+        payload = {
+            "event": event,
+            "timestamp": time.time(),
+            "host": self.hostname,
+            "subnet_id": self.subnet_id,
+            "subnet_node_id": self.subnet_node_id,
+            "peer_id": self.peer_id,
+            "data": self._normalize_value(data),
+        }
+        return self._sign_payload(payload)
+
+    def _normalize_value(self, value: Any) -> Any:
+        if value is None or isinstance(value, (bool, float, int, str)):
+            return value
+
+        if isinstance(value, bytes):
+            try:
+                return value.decode("utf-8")
+            except UnicodeDecodeError:
+                return value.hex()
+
+        if isinstance(value, dict):
+            return {str(key): self._normalize_value(item) for key, item in value.items()}
+
+        if isinstance(value, (list, tuple, set)):
+            return [self._normalize_value(item) for item in value]
+
+        if dataclasses.is_dataclass(value):
+            return self._normalize_value(dataclasses.asdict(value))
+
+        if hasattr(value, "to_string") and callable(value.to_string):
+            return value.to_string()
+
+        if hasattr(value, "to_primitive") and callable(value.to_primitive):
+            return self._normalize_value(value.to_primitive())
+
+        if hasattr(value, "model_dump") and callable(value.model_dump):
+            try:
+                dumped = value.model_dump(mode="json")
+            except TypeError:
+                dumped = value.model_dump()
+            return self._normalize_value(dumped)
+
+        if hasattr(value, "dict") and callable(value.dict):
+            return self._normalize_value(value.dict())
+
+        return str(value)
+
+    def _dump_json(self, payload: dict[str, Any], *, sort_keys: bool = False) -> str:
+        return json.dumps(payload, sort_keys=sort_keys, separators=(",", ":"))
 
     def start(self, nursery: trio.Nursery) -> None:
         """

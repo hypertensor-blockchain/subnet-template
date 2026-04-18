@@ -1,7 +1,7 @@
 import logging
 
-import base58
 from libp2p.abc import ISubscriptionAPI
+from libp2p.peer.id import ID
 from libp2p.pubsub.gossipsub import GossipSub
 from libp2p.pubsub.pb import rpc_pb2
 from libp2p.pubsub.pubsub import Pubsub
@@ -10,7 +10,8 @@ import trio
 from subnet.telemetry.telemetry import Telemetry
 from subnet.utils.db.database import RocksDB
 from subnet.utils.pubsub.heartbeat import HeartbeatData
-from subnet.utils.pubsub.topics import HEARTBEAT_TOPIC
+from subnet.utils.pubsub.peer_state import PeerStateData
+from subnet.utils.pubsub.topics import HEARTBEAT_TOPIC, PEER_STATE_TOPIC
 
 logging.basicConfig(
     level=logging.INFO,
@@ -115,12 +116,17 @@ class GossipReceiver:
 
     async def _handle_message(self, message: rpc_pb2.Message) -> None:
         """Handle incoming message based on topic."""
-        from_peer = base58.b58encode(message.from_id).decode()
+        from_peer = ID(message.from_id).to_string()
+        print(f"_handle_message from peer: {from_peer}")
+        print(f"_handle_message message: {message}")
+        print(f"_handle_message topicIDs: {message.topicIDs}")
         topic = message.topicIDs[0] if message.topicIDs else None
         logger.log(self.log_level, f"From peer: {from_peer}, topic: {topic}")
 
         if topic == HEARTBEAT_TOPIC:
             await self._handle_heartbeat(message, from_peer)
+        elif topic == PEER_STATE_TOPIC:
+            await self._handle_peer_state(message, from_peer)
 
         # Add custom topics and handlers here
         """
@@ -166,13 +172,38 @@ class GossipReceiver:
         if self.telemetry:
             await self.telemetry.emit_async(
                 "heartbeat_received",
-                key=key,
+                peer_id=from_peer,
                 data=message.data.decode("utf-8"),
                 message_size=len(message.data),
             )
 
         # Add to in-memory set
         self._seen_heartbeats.add(key)
+
+    async def _handle_peer_state(self, message: rpc_pb2.Message, from_peer: str) -> None:
+        """Store heartbeat message if not already stored for this epoch."""
+        try:
+            peer_state_data = PeerStateData.from_json(message.data.decode("utf-8"))
+        except Exception as e:
+            logger.warning(f"PeerStateData validation failed: {e}")
+            return
+
+        logger.log(
+            self.log_level,
+            f"Peer state received: {PEER_STATE_TOPIC} for node ID {peer_state_data.subnet_node_id}",
+        )
+
+        # -------------------------------------------
+        # Do something here with the peer state data
+        # ------------------------------------------
+
+        if self.telemetry:
+            await self.telemetry.emit_async(
+                "peer_state_received",
+                peer_id=from_peer,
+                data=message.data.decode("utf-8"),
+                message_size=len(message.data),
+            )
 
     """Handle commit message (example)"""
 

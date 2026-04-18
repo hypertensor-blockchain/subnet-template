@@ -4,6 +4,7 @@ from typing import List
 
 import trio
 
+from subnet.consensus.scoring import Scoring
 from subnet.consensus.utils import (
     compare_consensus_data,
     did_node_attest,
@@ -15,7 +16,6 @@ from subnet.hypertensor.config import BLOCK_SECS
 from subnet.hypertensor.mock.local_chain_functions import LocalMockHypertensor
 from subnet.utils.db.database import RocksDB
 from subnet.utils.hypertensor.subnet_info_tracker_v3 import SubnetInfoTracker
-from subnet.utils.pubsub.topics import HEARTBEAT_TOPIC
 
 # Configure logging
 logging.basicConfig(
@@ -43,6 +43,11 @@ class Consensus:
         self.subnet_node_id = subnet_node_id
         self.subnet_info_tracker = subnet_info_tracker
         self.hypertensor = hypertensor
+        self.scoring = Scoring(
+            db=db,
+            subnet_id=subnet_id,
+            hypertensor=hypertensor,
+        )
         self.is_subnet_active: bool = False
         self.skip_activate_subnet = skip_activate_subnet
         self.stop = trio.Event()
@@ -57,54 +62,6 @@ class Consensus:
     def get_validator(self, epoch: int):
         validator = self.hypertensor.get_rewards_validator(self.subnet_id, epoch)
         return validator
-
-    async def get_scores(self, current_epoch: int) -> List[SubnetNodeConsensusData]:
-        """
-        Fill in a way to get scores on each node
-
-        These scores must be deterministic - See docs
-        """
-        # Get each subnet node ID that is included onchain AND in the subnet
-        included_nodes = self.hypertensor.get_min_class_subnet_nodes_formatted(
-            subnet_id=self.subnet_id,
-            subnet_epoch=current_epoch,
-            min_class=SubnetNodeClass.Included,
-        )
-
-        subnet_node_ids = []
-        for node in included_nodes:
-            logger.debug(
-                f"Checking is heartbeat exists under nmap key {HEARTBEAT_TOPIC}:{current_epoch - 1}:{node.peer_info.peer_id}"  # noqa: E501
-            )
-
-            exists = self.db.nmap_get(HEARTBEAT_TOPIC, f"{current_epoch - 1}:{node.peer_info.peer_id}") is not None
-            if not exists:
-                logger.debug(
-                    f"Heartbeat does not exist for node ID {node.subnet_node_id} for epoch {current_epoch - 1}"
-                )
-                continue
-
-            subnet_node_ids.append(node.subnet_node_id)
-
-        logger.info(f"Subnet node IDs: {subnet_node_ids}")
-
-        """
-            {
-                "subnet_node_id": int,
-                "score": int
-            }
-
-            Is the expected format on-chain
-
-            We use asdict() when submitting
-        """
-        consensus_score_list = [
-            SubnetNodeConsensusData(subnet_node_id=node_id, score=int(1e18)) for node_id in subnet_node_ids
-        ]
-
-        logger.debug(f"Consensus score list: {consensus_score_list}")
-
-        return consensus_score_list
 
     async def run_activate_subnet(self):
         """
@@ -321,7 +278,7 @@ class Consensus:
             logger.info("Not attestor or validator, moving to next epoch")
             return
 
-        scores = await self.get_scores(current_epoch)
+        scores = await self.scoring.get_scores(current_epoch)
 
         if scores is None:
             return

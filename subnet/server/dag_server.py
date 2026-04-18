@@ -124,10 +124,6 @@ class Server:
         gossip_receiver_log_level: int = logging.DEBUG,
         publish_heartbeat_log_level: int = logging.DEBUG,
         maintain_connections_log_level: int = logging.DEBUG,
-        dag_startup_sync_min_connected_peers: int = 2,
-        dag_startup_sync_timeout: float = 30.0,
-        dag_startup_sync_settle_time: float = 3.0,
-        dag_startup_sync_poll_interval: float = 1.0,
         **kwargs,
     ):
         logger.info(f"Server starting subnet_id={subnet_id}")
@@ -157,10 +153,6 @@ class Server:
         self.gossip_receiver_log_level = gossip_receiver_log_level
         self.publish_heartbeat_log_level = publish_heartbeat_log_level
         self.maintain_connections_log_level = maintain_connections_log_level
-        self.dag_startup_sync_min_connected_peers = dag_startup_sync_min_connected_peers
-        self.dag_startup_sync_timeout = dag_startup_sync_timeout
-        self.dag_startup_sync_settle_time = dag_startup_sync_settle_time
-        self.dag_startup_sync_poll_interval = dag_startup_sync_poll_interval
 
     async def run(self):
         try:
@@ -449,26 +441,18 @@ class Server:
                             sync_protocol.set_request_handler(sync_service.handle_sync_request_bytes)
 
                             if not self.is_bootstrap:
-                                bootstrap_sync_peers = await sync_service.bootstrap_join_sync(
-                                    min_peer_count=self.dag_startup_sync_min_connected_peers,
-                                    wait_timeout=self.dag_startup_sync_timeout,
-                                    poll_interval=self.dag_startup_sync_poll_interval,
-                                    settle_time=self.dag_startup_sync_settle_time,
-                                )
-                                logger.info("Initial DAG startup sync attempted with peers: %s", bootstrap_sync_peers)
-
-                                # if self.enable_consensus:
-                                #     # Start consensus
-                                #     consensus = Consensus(
-                                #         db=self.db,
-                                #         subnet_id=self.subnet_id,
-                                #         subnet_node_id=self.subnet_node_id,
-                                #         subnet_info_tracker=subnet_info_tracker,
-                                #         hypertensor=self.hypertensor,
-                                #         skip_activate_subnet=False,
-                                #         start=True,
-                                #     )
-                                #     nursery.start_soon(consensus._main_loop)
+                                if self.enable_consensus:
+                                    # Start consensus
+                                    consensus = Consensus(
+                                        db=self.db,
+                                        subnet_id=self.subnet_id,
+                                        subnet_node_id=self.subnet_node_id,
+                                        subnet_info_tracker=subnet_info_tracker,
+                                        hypertensor=self.hypertensor,
+                                        skip_activate_subnet=False,
+                                        start=True,
+                                    )
+                                    nursery.start_soon(consensus._main_loop)
 
                                 # ------------------------------------------------------------------
                                 # Start gossip publishers

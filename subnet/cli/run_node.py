@@ -97,7 +97,7 @@ python -m subnet.cli.run_node \
 --gossip_receiver_log_level 20 \
 --publish_heartbeat_log_level 20 \
 --maintain_connections_log_level 20 \
---telemetry_url ws://127.0.0.1:8080
+--telemetry_url ws://127.0.0.1:8080/ingest
 
 # 12D3KooWKxAhu5U8SreDZpokVkN6ciTBbsHxteo3Vmq6Cpuf8KEt
 
@@ -112,7 +112,7 @@ python -m subnet.cli.run_node \
 --gossip_receiver_log_level 20 \
 --publish_heartbeat_log_level 20 \
 --maintain_connections_log_level 20 \
---telemetry_url ws://127.0.0.1:8080
+--telemetry_url ws://127.0.0.1:8080/ingest
 
 # 12D3KooWD1BgwEJGUXz3DsKVXGFq3VcmHRjeX56NKpyEa1QAP6uV
 
@@ -126,7 +126,8 @@ python -m subnet.cli.run_node \
 --heartbeat_validator_log_level 20 \
 --gossip_receiver_log_level 20 \
 --publish_heartbeat_log_level 20 \
---maintain_connections_log_level 20
+--maintain_connections_log_level 20 \
+--telemetry_url ws://127.0.0.1:8080/ingest
 
 # 12D3KooWMGKEpzz3EWGU2ayhwFriRh23QnQ479Ctfj8xSmDRirde
 
@@ -140,7 +141,8 @@ python -m subnet.cli.run_node \
 --heartbeat_validator_log_level 20 \
 --gossip_receiver_log_level 20 \
 --publish_heartbeat_log_level 20 \
---maintain_connections_log_level 20
+--maintain_connections_log_level 20 \
+--telemetry_url ws://127.0.0.1:8080/ingest
 
 # 12D3KooWF963f4jiFX26xDKu7BrqtVYTx4Jk8rUQQUxwiJQjVFWH
 
@@ -154,7 +156,8 @@ python -m subnet.cli.run_node \
 --heartbeat_validator_log_level 20 \
 --gossip_receiver_log_level 20 \
 --publish_heartbeat_log_level 20 \
---maintain_connections_log_level 20
+--maintain_connections_log_level 20 \
+--telemetry_url ws://127.0.0.1:8080/ingest
 
 python -m subnet.cli.run_node \
 --private_key_path george.key \
@@ -166,7 +169,8 @@ python -m subnet.cli.run_node \
 --heartbeat_validator_log_level 20 \
 --gossip_receiver_log_level 20 \
 --publish_heartbeat_log_level 20 \
---maintain_connections_log_level 20
+--maintain_connections_log_level 20 \
+--telemetry_url ws://127.0.0.1:8080/ingest
 
 python -m subnet.cli.run_node \
 --private_key_path harry.key \
@@ -178,7 +182,8 @@ python -m subnet.cli.run_node \
 --heartbeat_validator_log_level 20 \
 --gossip_receiver_log_level 20 \
 --publish_heartbeat_log_level 20 \
---maintain_connections_log_level 20
+--maintain_connections_log_level 20 \
+--telemetry_url ws://127.0.0.1:8080/ingest
 
 python -m subnet.cli.run_node \
 --private_key_path ian.key \
@@ -190,7 +195,8 @@ python -m subnet.cli.run_node \
 --heartbeat_validator_log_level 20 \
 --gossip_receiver_log_level 20 \
 --publish_heartbeat_log_level 20 \
---maintain_connections_log_level 20
+--maintain_connections_log_level 20 \
+--telemetry_url ws://127.0.0.1:8080/ingest
 
 
 # Run locally with local RPC connection
@@ -459,11 +465,6 @@ def main() -> None:
 
     db = RocksDB(base_path)
 
-    if not args.peerstore_db_path:
-        peerstore_db_path = f"/tmp/peerstore_{port}.ldb"
-    else:
-        peerstore_db_path = args.peerstore_db_path
-
     telemetry = None
     if args.telemetry_url:
         logger.info(f"Telemetry events starting at URL: {args.telemetry_url}")
@@ -497,7 +498,9 @@ def main() -> None:
         if args.subnet_id < 128000:
             real_subnet_id = hypertensor.get_subnet_id_from_friendly_id(args.subnet_id)
             logger.info(
-                f"Subnet ID {args.subnet_id} is less than 128000 and likely a friendly ID, using real subnet ID {real_subnet_id}"
+                "Subnet ID %s is less than 128000 and likely a friendly ID, using real subnet ID %s",
+                args.subnet_id,
+                real_subnet_id,
             )
             args.subnet_id = int(str(real_subnet_id))
 
@@ -519,24 +522,26 @@ def main() -> None:
                     f"Subnet node hotkey does not match. Expected: {subnet_node_info.hotkey}, Actual: {hotkey}"
                 )
 
-            if not PeerID.from_pubkey(key_pair.public_key).__eq__(subnet_node_info.peer_info.peer_id):
+            local_peer_id = PeerID.from_pubkey(key_pair.public_key)
+
+            if not local_peer_id.__eq__(subnet_node_info.peer_info.peer_id):
                 logger.warning(
                     "Subnet node peer ID does not match. This can be ignored if running a bootnode or client peer. "
-                    f"Expected: {subnet_node_info.peer_info.peer_id}, Actual: {PeerID.from_pubkey(key_pair.public_key).to_base58()}"  # noqa: E501
+                    f"Expected: {subnet_node_info.peer_info.peer_id}, Actual: {local_peer_id.to_string()}"  # noqa: E501
                 )
 
             if subnet_node_info.bootnode_peer_info:
-                if not PeerID.from_pubkey(key_pair.public_key).__eq__(subnet_node_info.bootnode_peer_info.peer_id):
+                if not local_peer_id.__eq__(subnet_node_info.bootnode_peer_info.peer_id):
                     logger.warning(
                         "Subnet node bootnode peer ID does not match. This can be ignored if you're not running a bootnode. "  # noqa: E501
-                        f"Expected: {subnet_node_info.bootnode_peer_info.peer_id}, Actual: {PeerID.from_pubkey(key_pair.public_key).to_base58()}"  # noqa: E501
+                        f"Expected: {subnet_node_info.bootnode_peer_info.peer_id}, Actual: {local_peer_id.to_string()}"  # noqa: E501
                     )
 
             if subnet_node_info.client_peer_info:
-                if not PeerID.from_pubkey(key_pair.public_key).__eq__(subnet_node_info.client_peer_info.peer_id):
+                if not local_peer_id.__eq__(subnet_node_info.client_peer_info.peer_id):
                     logger.warning(
                         "Subnet node client peer ID does not match. This can be ignored if you're not running a client peer. "  # noqa: E501
-                        f"Expected: {subnet_node_info.client_peer_info.peer_id}, Actual: {PeerID.from_pubkey(key_pair.public_key).to_base58()}"  # noqa: E501
+                        f"Expected: {subnet_node_info.client_peer_info.peer_id}, Actual: {local_peer_id.to_string()}"  # noqa: E501
                     )
 
             start_epoch = subnet_node_info.classification["start_epoch"]
