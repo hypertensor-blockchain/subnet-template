@@ -116,10 +116,7 @@ class GossipReceiver:
 
     async def _handle_message(self, message: rpc_pb2.Message) -> None:
         """Handle incoming message based on topic."""
-        from_peer = ID(message.from_id).to_string()
-        print(f"_handle_message from peer: {from_peer}")
-        print(f"_handle_message message: {message}")
-        print(f"_handle_message topicIDs: {message.topicIDs}")
+        from_peer = base58.b58encode(message.from_id).decode()
         topic = message.topicIDs[0] if message.topicIDs else None
         logger.log(self.log_level, f"From peer: {from_peer}, topic: {topic}")
 
