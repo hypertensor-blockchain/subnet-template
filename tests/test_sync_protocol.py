@@ -24,14 +24,14 @@ from subnet.merkle_dag import (
 from subnet.merkle_dag.exceptions import TimestampValidationError
 from subnet.merkle_dag.sync_scheduler import SyncScheduler
 from subnet.merkle_dag.sync_service import MerkleDagSyncService
-from subnet.protocols.sync_protocol import (
+from subnet.protocols.dag_sync_protocol import (
     MAX_STREAM_WRITE_LEN,
+    DagPeerSetProvider,
     MerkleDagSyncProtocol,
-    PeerStateDagPeerSetProvider,
     SyncProtocolPeerRequestClient,
 )
-from subnet.utils.gossipsub.peer_status_gossip_receiver import PeerStatusGossipReceiver
-from subnet.utils.pubsub.peer_state_publisher import PeerRole, PeerStateData, ServerState
+from subnet.utils.dag.peer_state_dag_publisher import PeerRole, PeerStateData, ServerState
+from subnet.utils.pubsub.peer_status_gossip_receiver import PeerStatusGossipReceiver
 from subnet.utils.pubsub.topics import PEER_STATE_TOPIC
 
 
@@ -40,11 +40,7 @@ class DummyDB:
         self.values: dict[tuple[str, str], dict] = {}
 
     def get_all_under_key(self, key: str) -> dict[str, dict]:
-        return {
-            subkey: value
-            for (prefix, subkey), value in self.values.items()
-            if prefix == key
-        }
+        return {subkey: value for (prefix, subkey), value in self.values.items() if prefix == key}
 
     def get_nested(self, key: str, subkey: str, default=None):
         return self.values.get((key, subkey), default)
@@ -85,12 +81,43 @@ class DummyDHT:
         self.routing_table = DummyRoutingTable(peer_infos)
 
 
+class DummyPubsub:
+    def __init__(
+        self,
+        *,
+        peers: dict[object, object] | None = None,
+        peer_topics: dict[str, set[object]] | None = None,
+        router: object | None = None,
+    ):
+        self.peers = peers or {}
+        self.peer_topics = peer_topics or {}
+        self.router = router
+
+
+class DummyGossipSub:
+    def __init__(
+        self,
+        *,
+        direct_peers: dict[object, object] | None = None,
+        mesh: dict[str, set[object]] | None = None,
+        fanout: dict[str, set[object]] | None = None,
+        peer_protocol: dict[object, object] | None = None,
+    ):
+        self.direct_peers = direct_peers or {}
+        self.mesh = mesh or {}
+        self.fanout = fanout or {}
+        self.peer_protocol = peer_protocol or {}
+
+
 class DummyNetwork:
     def __init__(self, connections: dict[object, list[object]] | None = None):
         self._connections = connections or {}
 
     def get_connections(self, peer_id):
         return self._connections.get(peer_id, [])
+
+    def get_connections_map(self):
+        return dict(self._connections)
 
 
 class DummyMuxedConn:
@@ -426,21 +453,11 @@ def test_peer_state_data_round_trips_multiaddr():
 
 
 @pytest.mark.asyncio
-async def test_sync_protocol_request_bytes_resolves_peer_multiaddr_from_cached_db_state():
-    remote_peer_id = _peer_id(7)
-    db = DummyDB()
-    db.set_nested(
-        PEER_STATE_TOPIC,
-        remote_peer_id,
-        {
-            "peer_id": remote_peer_id,
-            "node_id": "peer-state-2",
-            "created_at_ms": 1001,
-            "state": ServerState.ONLINE.value,
-            "multiaddr": "/ip4/127.0.0.1/tcp/9002",
-        },
-    )
-    protocol = MerkleDagSyncProtocol(FakeHost(), db)
+async def test_sync_protocol_request_bytes_resolves_peer_multiaddr_from_host_peerstore():
+    remote_peer = _peer_id_obj(7)
+    remote_peer_id = remote_peer.to_string()
+    peerstore = DummyPeerStore({remote_peer: DummyPeerInfo((Multiaddr("/ip4/127.0.0.1/tcp/9002"),))})
+    protocol = MerkleDagSyncProtocol(FakeHost(peerstore=peerstore), DummyDB())
 
     calls = {}
 
@@ -451,7 +468,7 @@ async def test_sync_protocol_request_bytes_resolves_peer_multiaddr_from_cached_d
         return b"response-bytes"
 
     protocol.call_remote = fake_call_remote  # type: ignore[method-assign]
-    provider = PeerStateDagPeerSetProvider(protocol)
+    provider = DagPeerSetProvider(protocol)
 
     response = await protocol.request_bytes(remote_peer_id, b"request-bytes")
 
@@ -492,7 +509,7 @@ async def test_sync_protocol_request_bytes_resolves_peer_multiaddr_from_dht_rout
 
 
 @pytest.mark.asyncio
-async def test_sync_protocol_request_bytes_allows_joining_peer_for_direct_sync():
+async def test_sync_protocol_request_bytes_ignores_cached_peer_state_for_direct_sync():
     joining_peer_id = _peer_id(18)
     db = DummyDB()
     db.set_nested(
@@ -507,32 +524,17 @@ async def test_sync_protocol_request_bytes_allows_joining_peer_for_direct_sync()
         },
     )
     protocol = MerkleDagSyncProtocol(FakeHost(), db)
+    provider = DagPeerSetProvider(protocol)
 
-    calls = {}
+    with pytest.raises(ValueError, match="No sync multiaddr known"):
+        await protocol.request_bytes(joining_peer_id, b"request-bytes")
 
-    async def fake_call_remote(destination, payload, *, peer_id=None):
-        calls["destination"] = str(destination)
-        calls["payload"] = payload
-        calls["peer_id"] = peer_id
-        return b"response-bytes"
-
-    protocol.call_remote = fake_call_remote  # type: ignore[method-assign]
-    provider = PeerStateDagPeerSetProvider(protocol)
-
-    response = await protocol.request_bytes(joining_peer_id, b"request-bytes")
-
-    assert response == b"response-bytes"
-    assert calls == {
-        "destination": f"/ip4/127.0.0.1/tcp/9003/p2p/{joining_peer_id}",
-        "payload": b"request-bytes",
-        "peer_id": joining_peer_id,
-    }
     assert await protocol.resolve_peer_multiaddr(joining_peer_id) is None
     assert await provider.list_peer_ids() == ()
 
 
 @pytest.mark.asyncio
-async def test_sync_protocol_ignores_non_online_cached_peer_states():
+async def test_sync_protocol_ignores_cached_peer_states_for_discovery():
     online_peer_id = _peer_id(11)
     joining_peer_id = _peer_id(12)
     db = DummyDB()
@@ -559,13 +561,11 @@ async def test_sync_protocol_ignores_non_online_cached_peer_states():
         },
     )
     protocol = MerkleDagSyncProtocol(FakeHost(), db)
-    provider = PeerStateDagPeerSetProvider(protocol)
+    provider = DagPeerSetProvider(protocol)
 
-    assert await protocol.resolve_peer_multiaddr(online_peer_id) == Multiaddr(
-        f"/ip4/127.0.0.1/tcp/9002/p2p/{online_peer_id}"
-    )
+    assert await protocol.resolve_peer_multiaddr(online_peer_id) is None
     assert await protocol.resolve_peer_multiaddr(joining_peer_id) is None
-    assert await provider.list_peer_ids() == (online_peer_id,)
+    assert await provider.list_peer_ids() == ()
 
 
 @pytest.mark.asyncio
@@ -595,10 +595,45 @@ async def test_sync_protocol_list_known_peer_ids_includes_connected_peers_withou
         FakeHost(connected_peer_ids=(connected_peer,), peerstore=DummyPeerStore({connected_peer: DummyPeerInfo(())})),
         DummyDB(),
     )
-    provider = PeerStateDagPeerSetProvider(protocol)
+    provider = DagPeerSetProvider(protocol)
 
     assert await protocol.list_known_peer_ids() == (connected_peer.to_string(),)
     assert await provider.list_connected_peer_ids() == (connected_peer.to_string(),)
+
+
+@pytest.mark.asyncio
+async def test_sync_protocol_uses_pubsub_peers_as_connected_peers():
+    pubsub_peer = _peer_id_obj(23)
+    pubsub_peer_id = pubsub_peer.to_string()
+    response_stream = FakeStream(incoming=_frame(b"pong"))
+    pubsub = DummyPubsub(peers={pubsub_peer: object()})
+    host = FakeHost(stream=response_stream)
+    protocol = MerkleDagSyncProtocol(host, DummyDB(), pubsub=pubsub)
+    provider = DagPeerSetProvider(protocol)
+
+    assert await protocol.list_connected_peer_ids() == (pubsub_peer_id,)
+    assert await protocol.list_known_peer_ids() == (pubsub_peer_id,)
+    assert await provider.list_connected_peer_ids() == (pubsub_peer_id,)
+
+    response = await protocol.request_bytes(pubsub_peer_id, b"ping")
+
+    assert response == b"pong"
+    assert _read_frame(bytes(response_stream.written)) == b"ping"
+    assert host.connected == []
+    assert host.opened_streams == [(pubsub_peer, ("/subnet/merkle_dag_sync_protocol/1.0.0",))]
+
+
+@pytest.mark.asyncio
+async def test_sync_protocol_resolves_gossipsub_direct_peer_multiaddr():
+    gossip_peer = _peer_id_obj(24)
+    gossip_peer_id = gossip_peer.to_string()
+    gossipsub = DummyGossipSub(direct_peers={gossip_peer: DummyPeerInfo((Multiaddr("/ip4/127.0.0.1/tcp/9013"),))})
+    protocol = MerkleDagSyncProtocol(FakeHost(), DummyDB(), gossipsub=gossipsub)
+
+    assert await protocol.resolve_peer_multiaddr(gossip_peer_id) == Multiaddr(
+        f"/ip4/127.0.0.1/tcp/9013/p2p/{gossip_peer_id}"
+    )
+    assert await protocol.list_known_peer_ids() == (gossip_peer_id,)
 
 
 @pytest.mark.asyncio
@@ -796,6 +831,36 @@ async def test_sync_scheduler_sync_once_fetches_current_orphans_from_preferred_p
 
     assert runtime.coordinator.fetch_calls == [
         ("peer-preferred", ("missing-parent-1", "missing-parent-2")),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_sync_scheduler_sync_once_continues_to_next_peer_after_failure():
+    storage = InMemoryDagStorage()
+    await storage.mark_orphan("orphan-1", ("missing-parent-1",))
+    runtime = FakeSchedulerRuntime("peer-local", storage)
+
+    async def fetch_missing(peer_id: str, node_ids: tuple[str, ...]) -> None:
+        runtime.coordinator.fetch_calls.append((peer_id, tuple(node_ids)))
+        if peer_id == "peer-unready":
+            raise ValueError("No sync multiaddr known for peer")
+        await storage.clear_orphan("orphan-1")
+
+    runtime.coordinator.fetch_missing = fetch_missing  # type: ignore[method-assign]
+    scheduler = SyncScheduler(
+        runtime=runtime,  # type: ignore[arg-type]
+        termination_event=trio.Event(),
+        peer_provider=FakePeerProvider(("peer-ready",)),
+        batch_window=0,
+        sync_on_startup=False,
+    )
+
+    remaining = await scheduler.sync_once(("peer-unready",))
+
+    assert remaining == ()
+    assert runtime.coordinator.fetch_calls == [
+        ("peer-unready", ("missing-parent-1",)),
+        ("peer-ready", ("missing-parent-1",)),
     ]
 
 

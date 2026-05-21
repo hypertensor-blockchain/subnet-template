@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import deque
 from collections.abc import Sequence
+from dataclasses import replace
 import logging
 import time
 from typing import Any
@@ -98,19 +99,7 @@ class MerkleDag:
         )
         node_id = self.validator.compute_node_id(header_seed)
         signature = signer.sign(self.validator.header_signing_bytes(header_seed)).hex()
-        header = DagNodeHeader(
-            node_id=node_id,
-            namespace=self.namespace,
-            schema_id=schema_id,
-            parent_ids=header_seed.parent_ids,
-            body_hash=body_hash,
-            body_size=body_size,
-            author=author,
-            public_key=header_seed.public_key,
-            signature=signature,
-            created_at_ms=header_seed.created_at_ms,
-            metadata=header_seed.metadata,
-        )
+        header = replace(header_seed, node_id=node_id, signature=signature)
         body = DagNodeBody(node_id=node_id, payload=canonical_payload)
         return DagNode(header=header, body=body)
 
@@ -126,12 +115,9 @@ class MerkleDag:
         if validate_remote_timestamp:
             self.validator.validate_remote_header(node.header)
 
-        if node.header.namespace != self.namespace:
-            return NodeIngestResult(
-                node_id=node.header.node_id,
-                status=NodeIngestStatus.REJECTED,
-                detail=f"Unexpected namespace '{node.header.namespace}'",
-            )
+        namespace_result = self._namespace_result(node.header)
+        if namespace_result is not None:
+            return namespace_result
 
         existing = await self.storage.get_node(node.header.node_id)
         if existing is not None:
@@ -139,31 +125,11 @@ class MerkleDag:
 
         await self.storage.put_header(node.header)
         await self.storage.put_body(node.body)
-        for parent_id in node.header.parent_ids:
-            await self.storage.add_child(parent_id, node.header.node_id)
 
-        missing_parents = await self._missing_parents(node.header.parent_ids)
-        if missing_parents:
-            await self.storage.mark_orphan(node.header.node_id, missing_parents)
-            logger.info(
-                "Stored orphan node",
-                extra={
-                    "node_id": node.header.node_id,
-                    "missing_parents": missing_parents,
-                    "from_peer": from_peer,
-                },
-            )
-            return NodeIngestResult(
-                node_id=node.header.node_id,
-                status=NodeIngestStatus.ORPHAN,
-                missing_parents=missing_parents,
-            )
-
-        resolved_nodes = await self._activate_with_descendants(node.header.node_id)
-        return NodeIngestResult(
-            node_id=node.header.node_id,
-            status=NodeIngestStatus.ACCEPTED,
-            resolved_nodes=resolved_nodes,
+        return await self._accept_complete_node(
+            node.header,
+            from_peer=from_peer,
+            log_orphan=True,
             detail="stored",
         )
 
@@ -175,39 +141,29 @@ class MerkleDag:
         validate_remote_timestamp: bool = False,
     ) -> NodeIngestResult:
         """Validate and store a fetched snapshot."""
+        if snapshot.body is not None:
+            return await self.add_node(
+                snapshot.to_node(),
+                from_peer=from_peer,
+                validate_remote_timestamp=validate_remote_timestamp,
+            )
+
         self.validator.validate_header(snapshot.header)
         if validate_remote_timestamp:
             self.validator.validate_remote_header(snapshot.header)
 
-        if snapshot.header.namespace != self.namespace:
-            return NodeIngestResult(
-                node_id=snapshot.header.node_id,
-                status=NodeIngestStatus.REJECTED,
-                detail=f"Unexpected namespace '{snapshot.header.namespace}'",
-            )
-
-        if snapshot.body is not None:
-            return await self.add_node(
-                DagNode(header=snapshot.header, body=snapshot.body),
-                from_peer=from_peer,
-                validate_remote_timestamp=validate_remote_timestamp,
-            )
+        namespace_result = self._namespace_result(snapshot.header)
+        if namespace_result is not None:
+            return namespace_result
 
         if await self.storage.has_header(snapshot.header.node_id):
             return NodeIngestResult(node_id=snapshot.header.node_id, status=NodeIngestStatus.DUPLICATE)
 
         await self.storage.put_header(snapshot.header)
-        for parent_id in snapshot.header.parent_ids:
-            await self.storage.add_child(parent_id, snapshot.header.node_id)
 
-        missing_parents = await self._missing_parents(snapshot.header.parent_ids)
-        if missing_parents:
-            await self.storage.mark_orphan(snapshot.header.node_id, missing_parents)
-            return NodeIngestResult(
-                node_id=snapshot.header.node_id,
-                status=NodeIngestStatus.ORPHAN,
-                missing_parents=missing_parents,
-            )
+        orphan_result = await self._orphan_result(snapshot.header, from_peer=from_peer, log_orphan=True)
+        if orphan_result is not None:
+            return orphan_result
 
         return NodeIngestResult(node_id=snapshot.header.node_id, status=NodeIngestStatus.PENDING_BODY)
 
@@ -228,21 +184,7 @@ class MerkleDag:
 
         await self.storage.put_body(body)
 
-        missing_parents = await self._missing_parents(header.parent_ids)
-        if missing_parents:
-            await self.storage.mark_orphan(body.node_id, missing_parents)
-            return NodeIngestResult(
-                node_id=body.node_id,
-                status=NodeIngestStatus.ORPHAN,
-                missing_parents=missing_parents,
-            )
-
-        resolved_nodes = await self._activate_with_descendants(body.node_id)
-        return NodeIngestResult(
-            node_id=body.node_id,
-            status=NodeIngestStatus.ACCEPTED,
-            resolved_nodes=resolved_nodes,
-        )
+        return await self._accept_complete_node(header)
 
     async def summary(self) -> DagSummary:
         """Return a lightweight DAG inventory summary."""
@@ -284,8 +226,94 @@ class MerkleDag:
         return tuple(ordered)
 
     async def _missing_parents(self, parent_ids: Sequence[str]) -> tuple[str, ...]:
-        missing = [parent_id for parent_id in parent_ids if not await self.storage.has_header(parent_id)]
+        missing = [
+            parent_id
+            for parent_id in parent_ids
+            if not (await self.storage.has_header(parent_id) and await self.storage.has_body(parent_id))
+        ]
         return tuple(sorted(missing))
+
+    def _namespace_result(self, header: DagNodeHeader) -> NodeIngestResult | None:
+        if header.namespace == self.namespace:
+            return None
+        return NodeIngestResult(
+            node_id=header.node_id,
+            status=NodeIngestStatus.REJECTED,
+            detail=f"Unexpected namespace '{header.namespace}'",
+        )
+
+    async def _orphan_result(
+        self,
+        header: DagNodeHeader,
+        *,
+        from_peer: str | None = None,
+        log_orphan: bool = False,
+    ) -> NodeIngestResult | None:
+        missing_parents = await self._missing_parents(header.parent_ids)
+        if not missing_parents:
+            return None
+
+        await self.storage.mark_orphan(header.node_id, missing_parents)
+        if log_orphan:
+            logger.info(
+                "Stored orphan DAG node %s namespace=%s schema_id=%s from_peer=%s",
+                header.node_id,
+                header.namespace,
+                header.schema_id,
+                from_peer,
+                extra={
+                    "event": "dag_node_orphan_stored",
+                    "node_id": header.node_id,
+                    "namespace": header.namespace,
+                    "schema_id": header.schema_id,
+                    "missing_parents": missing_parents,
+                    "from_peer": from_peer,
+                },
+            )
+        return NodeIngestResult(
+            node_id=header.node_id,
+            status=NodeIngestStatus.ORPHAN,
+            missing_parents=missing_parents,
+        )
+
+    async def _accept_complete_node(
+        self,
+        header: DagNodeHeader,
+        *,
+        from_peer: str | None = None,
+        log_orphan: bool = False,
+        detail: str = "",
+    ) -> NodeIngestResult:
+        orphan_result = await self._orphan_result(
+            header,
+            from_peer=from_peer,
+            log_orphan=log_orphan,
+        )
+        if orphan_result is not None:
+            return orphan_result
+
+        resolved_nodes = await self._activate_with_descendants(header.node_id)
+        logger.info(
+            "Stored DAG node %s namespace=%s schema_id=%s from_peer=%s",
+            header.node_id,
+            header.namespace,
+            header.schema_id,
+            from_peer,
+            extra={
+                "event": "dag_node_stored",
+                "node_id": header.node_id,
+                "namespace": header.namespace,
+                "schema_id": header.schema_id,
+                "from_peer": from_peer,
+                "resolved_nodes": resolved_nodes,
+            },
+        )
+        return NodeIngestResult(
+            node_id=header.node_id,
+            status=NodeIngestStatus.ACCEPTED,
+            resolved_nodes=resolved_nodes,
+            detail=detail,
+        )
 
     async def _activate_with_descendants(self, node_id: str) -> tuple[str, ...]:
         queue: deque[str] = deque([node_id])

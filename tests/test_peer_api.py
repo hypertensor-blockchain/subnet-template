@@ -1,14 +1,8 @@
-import asyncio
-import logging
-import sys
-from unittest.mock import MagicMock
-
 import pytest
 from libp2p import create_yamux_muxer_option, new_host
 from libp2p.crypto.secp256k1 import create_new_key_pair
 from libp2p.peer.peerinfo import info_from_p2p_addr
 from libp2p.security.insecure.transport import PLAINTEXT_PROTOCOL_ID, InsecureTransport
-from libp2p.tools.async_service import background_trio_service
 from multiaddr import Multiaddr
 import trio
 
@@ -52,11 +46,20 @@ async def test_api_protocol_unary_and_stream_v1():
     host_a, host_b = await create_tcp_host_pair()
 
     # Node 2 API Routes
-    api_routes = {"unary_test": "http://localhost:8080/unary", "stream_test": "http://localhost:8080/stream"}
+    api_routes = {
+        "unary_test": {
+            "url": "http://localhost:8080/unary",
+            "stream": False,
+        },
+        "stream_test": {
+            "url": "http://localhost:8080/stream",
+            "stream": True,
+        },
+    }
 
     # Set up API protocols
     proto1 = ApiProtocol(host_a, config=ApiProtocolConfig(routes=api_routes))
-    proto2 = ApiProtocol(host_b)
+    ApiProtocol(host_b)
 
     async with (
         host_a.run(listen_addrs=[Multiaddr("/ip4/127.0.0.1/tcp/0")]),

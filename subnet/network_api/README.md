@@ -25,11 +25,11 @@ Follow the steps below to integrate, configure, and customize this layout for yo
 
 ### 1. Create your Configuration
 
-Begin by passing dynamic parameters to tailor your API. Create a `config.json` (such as `subnet/network_api/config.json`) containing standard host and port information.
+Begin by passing dynamic parameters to tailor your API. Create a `config.json` (such as `subnet/network_api/config.json`) containing standard listen host and port information.
 
 ```json
 {
-  "host": "127.0.0.1",
+  "listen_host": "127.0.0.1",
   "port": 8000,
   "whitelist_ips": [
     "127.0.0.1",

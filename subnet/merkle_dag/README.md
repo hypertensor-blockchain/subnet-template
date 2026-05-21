@@ -17,70 +17,76 @@ This is not a blockchain consensus engine. It is a verified, immutable, multi-he
 The Merkle DAG subsystem gives the application a way to:
 
 - create immutable DAG nodes from typed payloads
-- hash those nodes deterministically
-- sign and verify nodes
-- store nodes by content hash
-- accept nodes before their parents arrive
+- canonicalize, hash, sign, and verify those nodes
+- store headers and bodies separately by content hash
+- accept complete nodes before their parents arrive
+- accept header-only snapshots while waiting for bodies
 - track orphaned nodes while waiting for missing parents
-- reconcile state with peers using summaries, fetches, and ancestor traversal
+- track the current accepted head set
+- reconcile state with peers using node gossip, head announcements, inventory, fetches, and ancestor traversal
 - rebuild application state later from the DAG
 
-The directory is intentionally independent from `libp2p`, GossipSub, and any specific transport. Networking is integrated by thin adapters outside this directory.
+The code in this directory is intentionally independent from py-libp2p, GossipSub, and any concrete request-response transport. Network integration is supplied by thin adapters outside this directory, mainly under `subnet.utils.dag` and `subnet.protocols.dag_sync_protocol`.
 
 ## High-Level Architecture
 
-At a high level, there are three layers:
+At a high level, there are four layers:
 
-1. Domain and storage layer
-2. Sync and reconciliation layer
-3. Network integration layer
-
-Only the first two live in this directory.
+1. domain models, validation, crypto, and serialization
+2. storage and DAG activation
+3. sync coordination, scheduling, and runtime assembly
+4. transport integration outside this directory
 
 ```text
-Application Code
+Application code
     |
-    | creates payload schemas, publishes events, reads materialized state
+    | payload schemas, publish triggers, materialized reads
     v
-Merkle DAG Core
+DagGossipSystem / DagPublisher          outside this directory
+    |
+    | create signed nodes, publish full-node gossip
+    v
+MerkleDagRuntime
     |
     | validates, stores, replays, reconciles
     v
-Storage + Crypto + Serialization
+MerkleDag + storage + validator
 ```
 
-And when integrated with the existing network:
+When integrated with the current network helpers:
 
 ```text
-DagPublisher ------------------> GossipSub announcement topic
+DagPublisher --------------------> GossipSub DagNodeGossip
      |                                      |
-     | create/store node                    | lightweight head updates
+     | create/store node                    | full node for live replication
      v                                      v
- MerkleDag <---------------------- GossipReceiverV2
+ MerkleDag <---------------------- DagGossipSubReceiver
      |                                      |
-     | fetch headers/bodies                 | direct request/response
+     | orphan or missing head               | direct request/response
      v                                      v
- MerkleDagSyncCoordinator <---- peer request client / stream adapter
+SyncScheduler / SyncService ----> MerkleDagSyncCoordinator
 ```
+
+Lightweight `DagAnnouncement` messages still exist for head summary gossip, but the normal publish path gossips a complete `DagNodeGossip` message so connected peers can ingest the node immediately.
 
 ## Module Map
 
-### Core domain
+### Core Domain
 
 - `models.py`
-  Defines immutable node, header, body, snapshot, summary, orphan, and wire message models.
+  Defines immutable node, header, body, snapshot, summary, orphan, peer-state, and wire message models.
 
 - `dag.py`
-  The main DAG engine. It creates nodes, accepts remote nodes, tracks orphans, activates nodes once parents exist, and manages head sets.
+  The main DAG engine. It creates nodes, accepts complete nodes, accepts header-only snapshots, stores bodies, tracks orphans, activates nodes once complete parents exist, and manages head sets.
 
 - `validator.py`
-  Validation pipeline for canonical serialization, hash verification, signature verification, payload schema validation, and parent-link validation.
+  Validation pipeline for canonical serialization, hash verification, signature verification, signer-peer derivation, optional remote timestamp checks, payload schema validation, parent-link validation, and domain validators.
 
 - `payloads.py`
-  Payload schema registration and the base helper for dict-like payloads.
+  Payload schema registration plus the `MappingPayloadSchema` base helper for dict-like payloads.
 
 - `materializer.py`
-  Replays nodes in topological order and lets schemas materialize application state from node history.
+  Replays complete nodes in deterministic topological order and lets schemas materialize application state from node history.
 
 ### Infrastructure
 
@@ -91,28 +97,37 @@ DagPublisher ------------------> GossipSub announcement topic
   Hash and signature helpers. Current defaults are SHA-256 plus libp2p-compatible signing and verification.
 
 - `storage_memory.py`
-  In-memory storage backend, mostly for tests and local development.
+  In-memory storage backend for tests and local development.
 
 - `storage_rocksdb.py`
-  Production-oriented storage backend backed by `subnet.utils.db.database.RocksDB`.
+  Production-oriented storage backend backed by `subnet.utils.db.database.RocksDB`, scoped by DAG namespace.
 
 - `interfaces.py`
-  Protocols for storage, signing, verification, gossip publishing, request clients, peer providers, and payload schemas.
-
-### Sync
-
-- `sync.py`
-  Sync coordinator plus wire codec for announcements, inventories, and fetches.
+  Protocols for storage, signing, verification, gossip publishing, request clients, peer providers, domain validators, and payload schemas.
 
 - `adapters.py`
-  Small callable-based adapters for plugging app/network code into the sync coordinator.
+  Callable-based adapters for plugging app or transport code into the sync coordinator.
 
 - `exceptions.py`
-  Custom exceptions for serialization, schema, hash, signature, and parent validation errors.
+  Custom exceptions for serialization, schema, hash, signature, timestamp, source-peer, and parent validation errors.
+
+### Sync And Runtime
+
+- `sync.py`
+  Sync message codec and `MerkleDagSyncCoordinator`. Handles head announcements, inventory comparison, direct fetches, recursive missing-parent fetches, peer sync state, and sync request serving.
+
+- `runtime.py`
+  Assembly object for one DAG namespace/topic. Builds serializer, hasher, schema registry, storage, validator, DAG, codec, and coordinator.
+
+- `sync_service.py`
+  Lifecycle wrapper for one runtime. Serves bytes-based request-response sync calls, supports startup reconciliation with `sync_dag(...)`, and can run optional periodic anti-entropy.
+
+- `sync_scheduler.py`
+  Event-driven missing-parent scheduler. It batches orphan notifications and asks the coordinator to fetch still-missing parent nodes from candidate peers.
 
 ## Data Model
 
-A DAG node is split into a header and a body.
+A complete DAG node is split into a header and a body.
 
 ```text
 DagNode
@@ -127,27 +142,29 @@ The header is the identity and verification surface.
 Important fields:
 
 - `node_id`
-  Content-derived hash of the unsigned header bytes
+  Content-derived hash of the unsigned header bytes.
 - `namespace`
-  Logical DAG namespace
+  Logical DAG namespace.
 - `schema_id`
-  Payload schema used to validate and materialize the body
+  Payload schema used to validate and materialize the body.
 - `parent_ids`
-  Zero or more parent node ids
+  Zero or more parent node ids. They must be sorted and unique.
 - `body_hash`
-  Hash of canonical payload bytes
+  Hash of canonical payload bytes.
 - `body_size`
-  Size of canonical payload bytes
+  Size of canonical payload bytes.
 - `author`
-  Application-level author identity
+  Application-level author identity.
 - `public_key`
-  Signer public key as hex
+  Signer public key as hex.
 - `signature`
-  Detached signature over the unsigned header bytes
+  Detached signature over the unsigned header bytes.
 - `created_at_ms`
-  Timestamp supplied by the producer
+  Timestamp supplied by the producer.
+- `version`
+  Header version. The current default is `1`.
 - `metadata`
-  Optional application metadata
+  Optional application metadata, normalized and key-sorted.
 
 ### `DagNodeBody`
 
@@ -158,16 +175,58 @@ The body contains:
 
 The payload is schema-specific but must normalize into JSON-compatible data.
 
+### `DagNodeSnapshot`
+
+Snapshots are transfer objects used by direct fetches.
+
+- `DagNodeSnapshot(header=header, body=body)` carries a complete node.
+- `DagNodeSnapshot(header=header, body=None)` carries a header-only result.
+
+`MerkleDag.add_snapshot(...)` accepts either form. A header-only snapshot can return `PENDING_BODY` when its parents are known but its body has not arrived yet.
+
+## Wire Messages
+
+All sync wire messages are canonical JSON envelopes with:
+
+- `kind`
+- `message_id`
+- `namespace`
+- `peer_id`
+- `created_at_ms`
+
+Current message kinds:
+
+- `node_gossip`
+  A GossipSub message carrying a complete `DagNode` for live replication.
+
+- `announcement`
+  A GossipSub message carrying current head ids and node count.
+
+- `inventory_request`
+  A direct request asking a peer for its current DAG summary.
+
+- `inventory_response`
+  A direct response carrying a `DagSummary`.
+
+- `fetch_request`
+  A direct request for headers or complete snapshots. It includes `node_ids`, `include_bodies`, and `max_ancestor_depth`.
+
+- `fetch_response`
+  A direct response carrying snapshots plus `not_found` ids.
+
+`DagSyncMessageCodec` is the single codec for all of these messages.
+
 ## Why Header/Body Split Exists
 
 The split supports efficient synchronization:
 
 - peers can compare heads and fetch only what they are missing
-- headers can travel without bodies if needed
-- identities are tied to canonical header bytes
+- headers can travel without bodies when a fetch asks for header-only data
+- identities are tied to canonical unsigned header bytes
 - bodies can be verified independently against `body_hash`
+- incomplete data can be tracked without pretending it is an accepted complete node
 
-## Deterministic Serialization and Hashing
+## Deterministic Serialization And Hashing
 
 The subsystem uses canonical JSON from `serialization.py`.
 
@@ -178,6 +237,7 @@ Properties:
 - ASCII-safe output
 - `allow_nan=False`
 - recursive normalization of mappings and sequences
+- string-only object keys
 
 This matters because hash and signature verification only work if every peer produces identical bytes from the same logical value.
 
@@ -200,55 +260,101 @@ Digest format:
 
 Every accepted node goes through local verification. No remote input is trusted.
 
-Validation order:
+Independent header validation checks:
 
 1. schema exists locally
 2. parent ids are sorted and unique
 3. no self-parenting
-4. body size is sane
+4. body size is non-negative
 5. header bytes hash to the declared `node_id`
 6. header signature verifies against `public_key`
-7. body bytes hash to `body_hash`
-8. body size matches `body_size`
-9. payload schema validates the body payload
-10. once parents are available, parent-link and domain validation run
+
+Complete body validation checks:
+
+1. body `node_id` matches the header
+2. body bytes hash to `body_hash`
+3. body size matches `body_size`
+4. schema validates the payload
+5. schema validates that the signed peer identity may publish the payload
+
+Remote paths can also request timestamp validation:
+
+```python
+await dag.add_node(node, from_peer=peer_id, validate_remote_timestamp=True)
+```
+
+This rejects headers whose `created_at_ms` is too far in the future. The default `DagValidator` allowance is 60 seconds.
+
+Transport receivers should additionally compare the transport sender to the signed header identity:
+
+```python
+dag.validator.validate_header_source_peer(node.header, source_peer_id)
+```
+
+Activation validation runs only after the node and all parents are complete locally:
+
+1. parent namespaces match the node namespace
+2. schema validates parent links
+3. configured domain validators run
 
 Visually:
 
 ```text
-Incoming Node
+Incoming complete node
     |
     v
-Header structural checks
+Header hash + signature validation
     |
     v
-Header hash verification
+Body hash + schema validation
     |
     v
-Signature verification
+Signer peer validation
     |
     v
-Body hash + size verification
+Remote timestamp/source checks when requested by receiver
     |
     v
-Schema payload validation
+Complete parents available?
+    |                  \
+    | yes               \ no
+    v                    v
+Activation checks       Mark orphan
     |
     v
-Parents available?
-    |               \
-    | yes            \ no
-    v                 v
-Parent/domain         Mark orphan
-activation
+Accept, update heads, retry waiting children
 ```
 
-## Orphans, Pending Nodes, and Multiple Heads
+## Ingest Results
+
+`MerkleDag` ingestion methods return `NodeIngestResult`.
+
+Statuses:
+
+- `ACCEPTED`
+  The node is complete, parent/domain checks passed, and heads were updated.
+
+- `DUPLICATE`
+  The exact header/body state was already known.
+
+- `ORPHAN`
+  The header/body are valid, but one or more complete parents are missing.
+
+- `PENDING_BODY`
+  A header-only snapshot was stored, parent headers are available, and the body still needs to arrive.
+
+- `REJECTED`
+  The input could not be stored in this DAG. For example, namespace mismatch or body-before-header.
+
+Most structural validation failures raise a typed `MerkleDagError` subclass rather than returning `REJECTED`.
+
+## Orphans, Pending Bodies, And Multiple Heads
 
 This subsystem expects misalignment.
 
-### Orphan
+### Orphans
 
-A node becomes an orphan when its header/body are valid but one or more parents are missing locally.
+A node becomes an orphan when its own data is valid but one or more parents are not complete locally.
 
 The node is stored, not discarded.
 
@@ -258,9 +364,20 @@ The storage layer remembers:
 - which parents are missing
 - which children are waiting on a given parent
 
-When a missing parent later arrives, the DAG re-attempts activation for the waiting children.
+When a missing parent later arrives, the DAG re-attempts activation for the waiting children. Activation can cascade, so accepting one parent may resolve several descendants.
 
-### Multiple heads
+### Pending Bodies
+
+Header-only snapshots are useful for lightweight fetches and ancestor inspection.
+
+If a header arrives without a body:
+
+- the header is validated and stored
+- missing parent headers can still make it an `ORPHAN`
+- otherwise the result is `PENDING_BODY`
+- `add_body(...)` validates the body against the stored header and then tries activation
+
+### Multiple Heads
 
 A head is any accepted node that currently has no accepted child.
 
@@ -272,17 +389,22 @@ Multiple heads are normal when:
 
 The DAG does not force a single chain.
 
-## Write Path: Creating and Publishing a Node
+## Write Path: Creating And Publishing A Node
 
-The local write path usually starts in `DagPublisher`, not in `MerkleDag` directly.
+Application code can use `MerkleDag` directly in tests or local tools, but the app-facing network path usually starts with `DagGossipSystem.publish(...)` or `DagPublisher`.
+
+Current full-node gossip path:
 
 ```text
 app event
    |
    v
+DagGossipSystem.publish(namespace, payload)
+   |
+   v
 DagPublisher
    |
-   | validate local parent preconditions
+   | choose parents, check parent headers+bodies exist locally
    v
 MerkleDag.create_node(...)
    |
@@ -294,97 +416,107 @@ MerkleDag.create_node(...)
    v
 MerkleDag.add_node(...)
    |
-   | validate + store + update heads
+   | validate + store + activate + update heads
    v
-MerkleDagSyncCoordinator.publish_heads(...)
-   |
-   v
-GossipSub announcement
+GossipSub DagNodeGossip
 ```
 
-### Why `DagPublisher` exists
+`DagPublisher.publish_heads(...)` and `MerkleDagSyncCoordinator.publish_heads(...)` are still available for lightweight `DagAnnouncement` publishing, but normal local publishes gossip the complete node.
 
-`GossipReceiverV2` is receive-only.
+## Receive Path: Gossip And Reconciliation
 
-`DagPublisher` is the outbound side and is responsible for:
+The receive-side network binder is outside this directory. The current helper is `DagGossipSubReceiver`, and the beginner-facing wrapper is `DagGossipSystem`.
 
-- accepting a publish trigger
-- checking that required parents already exist locally
-- building a new immutable DAG node
-- storing it in the local DAG
-- gossiping the updated head set
-
-## Receive Path: Processing Gossip and Reconciliation
-
-The receive side lives outside this directory, but it uses the components here.
+Full node gossip:
 
 ```text
-Gossip announcement
+GossipSub DagNodeGossip
    |
    v
-Decode DagAnnouncement
+Decode with DagSyncMessageCodec
    |
    v
-Compare remote heads to local DAG summary
+Check topic namespace, claimed peer id, and allowed schema id
    |
    v
-Need data?
-   |         \
-   | yes      \ no
-   v           v
-Inventory/Fetch stop
-requests
+Validate source peer matches signed header identity
    |
    v
-Receive headers/bodies/ancestors
+MerkleDag.add_node(..., validate_remote_timestamp=True)
    |
    v
-MerkleDag.add_snapshot / add_node
+Accepted, duplicate, or orphan
    |
    v
-Orphan or Accept
-   |
-   v
-Update heads and waiting children
+If orphan, schedule missing-parent sync
 ```
 
-The coordinator in `sync.py` handles:
+Announcement reconciliation:
 
-- announcement dedup
-- summary comparison
-- missing head detection
-- direct fetch of headers/bodies/ancestors
-- peer sync state caching
-- optional anti-entropy loops
+```text
+GossipSub DagAnnouncement
+   |
+   v
+Deduplicate announcement id
+   |
+   v
+Store PeerSyncState summary
+   |
+   v
+Unknown heads or larger remote count?
+   |                    \
+   | yes                 \ no
+   v                      v
+Inventory/fetch requests  Stop
+```
+
+Direct sync fetches walk backward from the missing frontier. `fetch_missing(...)` requests the exact missing ids with `max_ancestor_depth=0`; if a fetched node is still orphaned, its missing parents are queued for follow-up fetches.
+
+## Sync Modes
+
+There are four related sync paths:
+
+- live node gossip
+  `DagNodeGossip` carries a complete node over GossipSub.
+
+- lightweight announcements
+  `DagAnnouncement` carries head ids and node count over GossipSub.
+
+- orphan-driven missing-parent sync
+  `SyncScheduler` batches orphan notifications and calls `fetch_missing(...)`.
+
+- anti-entropy reconciliation
+  `MerkleDagSyncService` can perform inventory comparison and fetch missing content. Periodic reconciliation is disabled by default and only runs when explicitly enabled.
+
+`sync_dag(...)` is the startup catch-up path. It waits for peers, lets discovery settle, then reconciles until local storage contains the advertised remote heads and their closure.
 
 ## Storage Model
 
 The `DagStorage` protocol is the abstraction boundary. The DAG engine never depends on RocksDB directly.
 
-### What the storage layer must support
+### What Storage Must Support
 
 - header lookup by `node_id`
 - body lookup by `node_id`
 - full node lookup by `node_id`
 - current heads
 - orphan tracking
-- parent -> child tracking
 - missing parent -> waiting child tracking
 - announcement dedup
+- complete node counting and listing
 - peer sync state
 
-### RocksDB layout
+### RocksDB Layout
 
-`RocksDBDagStorage` uses these namespaces:
+`RocksDBDagStorage` scopes each logical map by namespace:
 
-- `dag_heads`
-- `dag_headers`
-- `dag_bodies`
-- `dag_orphans`
-- `dag_seen_announcements`
-- `dag_peer_state`
-- nested `dag_children`
-- nested `dag_waiting`
+- `dag_heads:<namespace>`
+- `dag_headers:<namespace>`
+- `dag_bodies:<namespace>`
+- `dag_orphans:<namespace>`
+- `dag_seen_announcements:<namespace>`
+- `dag_peer_state:<namespace>`
+- nested `dag_waiting:<namespace>`
 
 Important note:
 
@@ -396,17 +528,15 @@ The built-in storage only indexes nodes by DAG structure and sync needs. It does
 
 If you need those queries later, build an application projection or external index from DAG contents.
 
-## Reading Data Back Out of the DAG
-
-This is one of the most important usage patterns.
+## Reading Data Back Out Of The DAG
 
 There are three common ways to read data later:
 
 1. read raw nodes directly by `node_id`
 2. read the current heads
-3. replay/materialize application state from reachable nodes
+3. replay and materialize application state from reachable nodes
 
-### 1. Read raw node data by `node_id`
+### 1. Read Raw Node Data By `node_id`
 
 If you already know a node id, this is the simplest path.
 
@@ -427,7 +557,7 @@ This is good when:
 - a different component references node ids directly
 - you need the exact immutable payload that was written
 
-### 2. Read the current heads
+### 2. Read The Current Heads
 
 To know the current frontier:
 
@@ -439,9 +569,9 @@ Heads are useful when:
 
 - you want to inspect the latest concurrent branches
 - you want to reconcile with other peers
-- you want to start a replay/materialization from the frontier
+- you want to start replay/materialization from the frontier
 
-### 3. Materialize application state
+### 3. Materialize Application State
 
 If your application needs a queryable, derived view of the DAG, use `DagStateMaterializer`.
 
@@ -460,7 +590,7 @@ node_id -> schema.materialize(node, parent_states)
 
 This is how you reconstruct application-level meaning from immutable DAG history.
 
-## Example: Defining a Payload Schema
+## Example: Defining A Payload Schema
 
 Every payload type should have a schema.
 
@@ -468,6 +598,7 @@ A schema is responsible for:
 
 - canonicalizing payloads
 - validating payload structure
+- optionally validating that the signing peer may publish the payload
 - optionally validating parent relationships
 - optionally materializing application state
 
@@ -491,16 +622,19 @@ class ProfileSchema(MappingPayloadSchema):
         if not isinstance(payload.get("display_name"), str):
             raise PayloadValidationError("profile payload requires string display_name")
 
+    def validate_signer_peer(self, node, signer_peer_id: str) -> None:
+        # Optional: require payload ownership to match the signed libp2p identity.
+        if node.body.payload.get("peer_id") not in (None, signer_peer_id):
+            raise PayloadValidationError("profile peer_id does not match signer")
+
     def validate_parent_links(self, node, parents) -> None:
-        # Optional: enforce domain-specific ancestry rules
-        # Example: all parents must belong to the same user_id
+        # Optional: enforce domain-specific ancestry rules.
         user_id = node.body.payload["user_id"]
         for parent in parents:
             if parent.body.payload["user_id"] != user_id:
                 raise PayloadValidationError("parent user_id mismatch")
 
     def materialize(self, node, parent_states: tuple[Any, ...]) -> Any:
-        # Optional: define the application view derived from this node
         previous = parent_states[-1] if parent_states else {}
         return {
             **previous,
@@ -509,7 +643,7 @@ class ProfileSchema(MappingPayloadSchema):
         }
 ```
 
-## Example: Building a Local DAG
+## Example: Building A Local DAG
 
 This example uses the transport-agnostic components only.
 
@@ -518,6 +652,7 @@ from libp2p.crypto.ed25519 import create_new_key_pair
 
 from subnet.merkle_dag import (
     CanonicalJSONSerializer,
+    DagNodeSnapshot,
     DagValidator,
     InMemoryDagStorage,
     Libp2pKeyPairSigner,
@@ -531,7 +666,7 @@ from subnet.merkle_dag import (
 signer = Libp2pKeyPairSigner(create_new_key_pair())
 serializer = CanonicalJSONSerializer()
 schemas = PayloadSchemaRegistry([ProfileSchema()])
-storage = InMemoryDagStorage()
+storage = InMemoryDagStorage(namespace="profiles")
 validator = DagValidator(
     serializer=serializer,
     hasher=SHA256Hasher(),
@@ -548,7 +683,7 @@ dag = MerkleDag(
 )
 ```
 
-## Example: Creating and Storing a Node Without Networking
+## Example: Creating And Storing A Node Without Networking
 
 ```python
 node = await dag.create_node(
@@ -563,9 +698,28 @@ node = await dag.create_node(
 )
 
 result = await dag.add_node(node)
-print(result.status)        # accepted
+print(result.status.value)  # accepted
 print(node.header.node_id)  # content-derived id
 ```
+
+## Example: Header-Only Snapshot Then Body
+
+```python
+snapshot = node.to_snapshot()
+
+header_result = await dag.add_snapshot(
+    DagNodeSnapshot(header=snapshot.header, body=None),
+    from_peer=remote_peer_id,
+    validate_remote_timestamp=True,
+)
+
+print(header_result.status.value)  # pending_body, orphan, duplicate, or rejected
+
+body_result = await dag.add_body(snapshot.body)
+print(body_result.status.value)
+```
+
+Fetch responses usually include bodies, but this path is available when a transport wants to stage headers separately.
 
 ## Example: Reading Raw Stored Data Later
 
@@ -596,7 +750,7 @@ from subnet.merkle_dag import RocksDBDagStorage
 from subnet.utils.db.database import RocksDB
 
 db = RocksDB(base_path="/tmp/example_dag")
-storage = RocksDBDagStorage(db, serializer)
+storage = RocksDBDagStorage(db, serializer, namespace="profiles")
 
 dag = MerkleDag(
     namespace="profiles",
@@ -611,7 +765,7 @@ Later, after process restart:
 
 ```python
 db = RocksDB(base_path="/tmp/example_dag")
-storage = RocksDBDagStorage(db, serializer)
+storage = RocksDBDagStorage(db, serializer, namespace="profiles")
 
 dag = MerkleDag(
     namespace="profiles",
@@ -624,7 +778,113 @@ dag = MerkleDag(
 node = await dag.get_node(existing_node_id)
 ```
 
-## Example: Reading Data Outside the DAG
+For most networked application wiring, prefer `MerkleDagRuntime`; it builds namespace-scoped RocksDB storage for you.
+
+## Example: Publish Through `DagGossipSystem`
+
+The recommended outbound API for app code using the DAG gossip helpers is `DagGossipSystem.publish(...)`. Application logic decides when to publish and passes the configured DAG namespace; the system writes the node locally and gossips it on the namespace's configured GossipSub topic.
+
+```python
+from subnet.utils.dag.dag_gossip_system import DagGossipSystem, DagGossipTopicConfig
+
+dag_system = DagGossipSystem(
+    pubsub=pubsub,
+    termination_event=termination_event,
+    db=db,
+    local_peer_id=host.get_id(),
+    topics=[
+        DagGossipTopicConfig(
+            topic="profiles-dag",
+            namespace="profiles",
+            payload_schemas=[ProfileSchema()],
+            schema_id="profile",
+            signer=signer,
+        )
+    ],
+)
+
+result = await dag_system.publish(
+    "profiles",
+    {
+        "user_id": "alice",
+        "display_name": "Alice A.",
+    },
+    author="alice",
+)
+
+print(result.node_id)
+print(result.gossip_message_id)
+```
+
+Receiving-only namespaces can still publish with explicit requirements:
+
+```python
+from subnet.utils.dag.dag_publisher import DagNodePublishRequirements
+
+result = await dag_system.publish(
+    "profiles",
+    DagNodePublishRequirements(
+        schema_id="profile",
+        payload={
+            "user_id": "alice",
+            "display_name": "Alice A.",
+        },
+        parent_ids=(),
+        author="alice",
+        signer=signer,
+    )
+)
+
+print(result.node_id)
+```
+
+## Example: Receive And Reconcile
+
+The recommended app-facing wrapper owns receive loops, publishing, missing-parent repair, and direct sync request routing.
+
+```python
+from subnet.protocols.dag_sync_protocol import (
+    DagPeerSetProvider,
+    MerkleDagSyncProtocol,
+    SyncProtocolPeerRequestClient,
+)
+from subnet.utils.dag.dag_gossip_system import DagGossipSystem, DagGossipTopicConfig
+
+sync_protocol = MerkleDagSyncProtocol(host=host, db=db, pubsub=pubsub, gossipsub=gossipsub)
+request_client = SyncProtocolPeerRequestClient(sync_protocol)
+peer_provider = DagPeerSetProvider(sync_protocol)
+
+dag_system = DagGossipSystem(
+    pubsub=pubsub,
+    termination_event=termination_event,
+    db=db,
+    local_peer_id=host.get_id(),
+    topics=[
+        DagGossipTopicConfig(
+            topic="profiles-dag",
+            namespace="profiles",
+            payload_schemas=[ProfileSchema()],
+            schema_id="profile",
+            signer=signer,
+            request_client=request_client,
+            peer_provider=peer_provider,
+        )
+    ],
+)
+
+sync_protocol.set_request_handler(dag_system.handle_sync_request_bytes)
+nursery.start_soon(dag_system.run)
+```
+
+To run startup reconciliation for a namespace:
+
+```python
+synced_peers = await dag_system.sync_dag("profiles")
+```
+
+If you only need the lower-level receive template, use `DagGossipSubReceiver` from `subnet.utils.dag.gossip_dag_receiver` and register `receiver.handle_sync_request_bytes` with the direct sync protocol.
+
+## Example: Reading Data Outside The DAG
 
 This is the key question most application code has:
 
@@ -633,9 +893,9 @@ This is the key question most application code has:
 Short answer:
 
 - either keep the `node_id` and read the node directly
-- or build a projection / materialized view from DAG history
+- or build a projection or materialized view from DAG history
 
-### Option A: Keep node ids and fetch raw nodes
+### Option A: Keep Node Ids And Fetch Raw Nodes
 
 If your app stores:
 
@@ -653,7 +913,7 @@ profile = node.body.payload
 
 This is simplest when your app already has an external pointer.
 
-### Option B: Build a projection
+### Option B: Build A Projection
 
 If the app needs queryable current state, replay the DAG into an application view.
 
@@ -697,7 +957,7 @@ This is usually the best answer when developers ask:
 The DAG stores immutable history.
 Your app usually reads from a projection built from that history.
 
-## Recommended Read Pattern for Real Applications
+## Recommended Read Pattern For Real Applications
 
 Use both of these:
 
@@ -714,7 +974,7 @@ Why:
 - projections are ideal for fast app queries
 - secondary indexes belong in app logic, not in the core DAG engine
 
-## Example: Building an External Projection
+## Example: Building An External Projection
 
 ```python
 async def rebuild_profile_projection(dag: MerkleDag) -> dict[str, dict]:
@@ -738,117 +998,7 @@ projection = await rebuild_profile_projection(dag)
 alice_profile = projection["alice"]["profile"]
 ```
 
-## Example: Publish Through the Event-Driven Publisher
-
-The recommended outbound API is `DagPublisher`.
-
-```python
-from subnet.utils.gossipsub.dag_publisher import DagNodePublishRequirements, DagPublisher
-
-publisher = DagPublisher(
-    pubsub=pubsub,
-    termination_event=termination_event,
-    db=db,
-    payload_schemas=[ProfileSchema()],
-    local_peer_id=host.get_id(),
-    namespace="profiles",
-    dag_topic="profiles-dag",
-)
-```
-
-Immediate publish:
-
-```python
-result = await publisher.publish_now(
-    DagNodePublishRequirements(
-        schema_id="profile",
-        payload={
-            "user_id": "alice",
-            "display_name": "Alice A.",
-        },
-        parent_ids=(),
-        author="alice",
-        signer=signer,
-    )
-)
-
-print(result.node_id)
-print(result.announcement)
-```
-
-Queued/event-driven publish:
-
-```python
-event = await publisher.trigger_publish(
-    DagNodePublishRequirements(
-        schema_id="profile",
-        payload={
-            "user_id": "alice",
-            "display_name": "Alice A.",
-        },
-        parent_ids=(),
-        author="alice",
-        signer=signer,
-    )
-)
-
-print(event.event_id)
-```
-
-And in the nursery:
-
-```python
-nursery.start_soon(publisher.run)
-```
-
-## Example: Receive and Reconcile
-
-The receive-side binder is outside this directory, but this is the intended usage:
-
-```python
-receiver = GossipReceiverV2(
-    gossipsub=gossipsub,
-    pubsub=pubsub,
-    termination_event=termination_event,
-    db=db,
-    payload_schemas=[ProfileSchema()],
-    local_peer_id=host.get_id(),
-    namespace="profiles",
-    dag_topic="profiles-dag",
-    request_client=request_client,
-    peer_provider=peer_provider,
-)
-
-nursery.start_soon(receiver.run)
-```
-
-And to serve direct sync requests:
-
-```python
-response_bytes = await receiver.handle_sync_request_bytes(from_peer, request_bytes)
-```
-
-## Anti-Entropy and Reconciliation
-
-There are two sync modes:
-
-### Live gossip
-
-Peers announce head changes through lightweight `DagAnnouncement` messages.
-
-### Anti-entropy
-
-Peers periodically compare summaries and fetch missing data even if live gossip was missed.
-
-This combination handles:
-
-- delayed peers
-- packet loss
-- restarts
-- late joiners
-- short-lived partitions
-
-## What the DAG Does Not Do
+## What The DAG Does Not Do
 
 It does not:
 
@@ -866,24 +1016,26 @@ When adding a new DAG-backed data type:
 
 1. define a payload schema
 2. decide what the payload means
-3. decide parent-link rules
-4. decide how application state should be materialized
-5. decide whether you need an external projection/index
-6. wire `DagPublisher` for local writes
-7. wire `GossipReceiverV2` for inbound sync
-8. test out-of-order arrival, divergence, and replay
+3. decide signer-peer ownership rules, if any
+4. decide parent-link rules
+5. decide how application state should be materialized
+6. decide whether you need an external projection or index
+7. wire `DagGossipSystem` or `DagPublisher` for local writes
+8. wire `DagGossipSubReceiver` or `DagGossipSystem` for inbound sync
+9. configure a direct request client and peer provider when peers must fetch missing data
+10. test out-of-order arrival, divergence, replay, and restart catch-up
 
 ## Practical Design Guidance
 
-### Keep payloads small and explicit
+### Keep Payloads Small And Explicit
 
 The payload is part of the immutable DAG history. Avoid vague or overloaded payloads.
 
-### Put query indexes outside the core DAG
+### Put Query Indexes Outside The Core DAG
 
 If you need to answer business queries quickly, build a projection store.
 
-### Store business keys in payload or metadata
+### Store Business Keys In Payload Or Metadata
 
 If nodes represent domain entities, include stable identifiers like:
 
@@ -894,7 +1046,7 @@ If nodes represent domain entities, include stable identifiers like:
 
 This makes replay and projection building much easier.
 
-### Use parent links intentionally
+### Use Parent Links Intentionally
 
 Parent links define causal structure. Think carefully about whether new nodes should:
 
@@ -902,29 +1054,41 @@ Parent links define causal structure. Think carefully about whether new nodes sh
 - merge multiple heads
 - represent concurrent facts
 
+### Prefer Complete Parents For Local Publishing
+
+`DagPublisher` refuses to publish a node until required parent headers and bodies exist locally. This keeps local publishes from creating avoidable orphans.
+
 ## Typical Developer Questions
 
-### How do I store data?
+### How Do I Store Data?
 
-Create a schema, build a node with `MerkleDag.create_node(...)` or `DagPublisher`, then add it to the DAG.
+Create a schema, build a node with `MerkleDag.create_node(...)` and `MerkleDag.add_node(...)`, or publish through `DagGossipSystem.publish(...)`.
 
-### How do I read data later?
+### How Do I Read Data Later?
 
 - if you know the `node_id`, use `await dag.get_node(node_id)`
 - if you need derived current state, use `DagStateMaterializer`
 - if you need fast business queries, build a projection/index outside the DAG
 
-### How do I read the "latest" value?
+### How Do I Read The "Latest" Value?
 
 The core DAG only knows heads, not business semantics. Your app should:
 
 - inspect `await dag.get_heads()`
-- or materialize state
-- or maintain a projection keyed by your business identifier
+- materialize state
+- maintain a projection keyed by your business identifier
 
-### Can I query by app key directly from the DAG?
+### Can I Query By App Key Directly From The DAG?
 
 Not by default. The core storage layer is structural, not domain-indexed.
+
+### What Happens When Parents Arrive Late?
+
+The child is stored as an orphan. When a parent arrives, activation is retried for any waiting children. If all required parents are complete and domain validation passes, the child is accepted and heads are updated.
+
+### What Happens When Live Gossip Is Missed?
+
+Announcements, startup sync, orphan-driven fetches, and optional periodic anti-entropy all use direct inventory/fetch requests to repair missing content.
 
 ## Minimal Mental Model
 

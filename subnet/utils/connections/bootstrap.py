@@ -4,13 +4,11 @@ from libp2p.abc import IHost
 from libp2p.tools.utils import info_from_p2p_addr
 from multiaddr import Multiaddr
 
+from subnet.utils.logging_config import configure_logging
+
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler()],
-)
-logger = logging.getLogger("server/1.0.0")
+configure_logging()
+logger = logging.getLogger(__name__)
 
 
 async def connect_to_bootstrap_nodes(host: IHost, bootstrap_addrs: list[str]) -> None:

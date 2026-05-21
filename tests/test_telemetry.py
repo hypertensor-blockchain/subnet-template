@@ -1,5 +1,5 @@
-import json
 from dataclasses import dataclass
+import json
 
 import pytest
 from libp2p.crypto.ed25519 import create_new_key_pair

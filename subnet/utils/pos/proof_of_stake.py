@@ -6,13 +6,10 @@ from libp2p.peer.id import ID as PeerID
 
 from subnet.hypertensor.chain_functions import Hypertensor
 from subnet.telemetry.telemetry import Telemetry
+from subnet.utils.logging_config import configure_logging
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler()],
-)
+configure_logging()
 logger = logging.getLogger("proof-of-stake")
 
 

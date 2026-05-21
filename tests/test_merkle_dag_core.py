@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import logging
 
 import pytest
 from libp2p.crypto.ed25519 import create_new_key_pair
@@ -8,6 +9,7 @@ from libp2p.peer.id import ID
 
 from subnet.merkle_dag import (
     CanonicalJSONSerializer,
+    DagNodeSnapshot,
     DagValidator,
     InMemoryDagStorage,
     Libp2pKeyPairSigner,
@@ -127,14 +129,14 @@ async def test_deterministic_hashing():
 @pytest.mark.asyncio
 async def test_signature_verification():
     dag = _build_dag()
-    signer = _signer(2)
+    signer, peer_id = _signer_and_peer_id(2)
 
     node = await dag.create_node(
         schema_id="counter",
         payload={"value": 1},
         parent_ids=(),
         signer=signer,
-        author="peer-b",
+        author=peer_id,
         created_at_ms=1001,
     )
     result = await dag.add_node(node)
@@ -144,16 +146,62 @@ async def test_signature_verification():
 
 
 @pytest.mark.asyncio
+async def test_header_author_must_match_signed_identity():
+    dag = _build_dag()
+    signer, peer_id = _signer_and_peer_id(22)
+
+    node = await dag.create_node(
+        schema_id="counter",
+        payload={"value": 1},
+        parent_ids=(),
+        signer=signer,
+        author=f"{peer_id}-wrong",
+        created_at_ms=1001,
+    )
+
+    with pytest.raises(SourcePeerMismatchError):
+        await dag.add_node(node)
+
+
+@pytest.mark.asyncio
+async def test_add_node_logs_stored_namespace_and_schema(caplog: pytest.LogCaptureFixture):
+    dag = _build_dag(namespace="logged-dag")
+    signer, peer_id = _signer_and_peer_id(20)
+
+    node = await dag.create_node(
+        schema_id="counter",
+        payload={"value": 1},
+        parent_ids=(),
+        signer=signer,
+        author=peer_id,
+        created_at_ms=1001,
+    )
+
+    with caplog.at_level(logging.INFO, logger="subnet.merkle_dag.dag"):
+        result = await dag.add_node(node, from_peer="peer-remote")
+
+    assert result.status.value == "accepted"
+    stored_records = [record for record in caplog.records if getattr(record, "event", None) == "dag_node_stored"]
+    assert len(stored_records) == 1
+    assert "namespace=logged-dag" in stored_records[0].message
+    assert "schema_id=counter" in stored_records[0].message
+    assert stored_records[0].node_id == node.header.node_id
+    assert stored_records[0].namespace == "logged-dag"
+    assert stored_records[0].schema_id == "counter"
+    assert stored_records[0].from_peer == "peer-remote"
+
+
+@pytest.mark.asyncio
 async def test_out_of_order_arrival():
     dag = _build_dag()
-    signer = _signer(3)
+    signer, peer_id = _signer_and_peer_id(3)
 
     parent = await dag.create_node(
         schema_id="counter",
         payload={"value": 1},
         parent_ids=(),
         signer=signer,
-        author="peer-c",
+        author=peer_id,
         created_at_ms=1002,
     )
     child = await dag.create_node(
@@ -161,7 +209,7 @@ async def test_out_of_order_arrival():
         payload={"value": 2},
         parent_ids=(parent.header.node_id,),
         signer=signer,
-        author="peer-c",
+        author=peer_id,
         created_at_ms=1003,
     )
 
@@ -178,16 +226,90 @@ async def test_out_of_order_arrival():
 
 
 @pytest.mark.asyncio
+async def test_parent_header_without_body_is_missing_until_body_arrives():
+    dag = _build_dag()
+    signer, peer_id = _signer_and_peer_id(23)
+
+    parent = await dag.create_node(
+        schema_id="counter",
+        payload={"value": 1},
+        parent_ids=(),
+        signer=signer,
+        author=peer_id,
+        created_at_ms=1023,
+    )
+    child = await dag.create_node(
+        schema_id="counter",
+        payload={"value": 2},
+        parent_ids=(parent.header.node_id,),
+        signer=signer,
+        author=peer_id,
+        created_at_ms=1024,
+    )
+
+    header_result = await dag.add_snapshot(DagNodeSnapshot(header=parent.header))
+    assert header_result.status.value == "pending_body"
+
+    child_result = await dag.add_node(child)
+    assert child_result.status.value == "orphan"
+    assert child_result.missing_parents == (parent.header.node_id,)
+    assert await dag.get_heads() == ()
+
+    parent_body_result = await dag.add_body(parent.body)
+    assert parent_body_result.status.value == "accepted"
+    assert parent_body_result.resolved_nodes == (parent.header.node_id, child.header.node_id)
+    assert await dag.get_heads() == (child.header.node_id,)
+    assert await dag.storage.get_orphan(child.header.node_id) is None
+
+
+@pytest.mark.asyncio
+async def test_orphan_log_includes_namespace_and_schema(caplog: pytest.LogCaptureFixture):
+    dag = _build_dag(namespace="orphan-dag")
+    signer, peer_id = _signer_and_peer_id(21)
+
+    parent = await dag.create_node(
+        schema_id="counter",
+        payload={"value": 1},
+        parent_ids=(),
+        signer=signer,
+        author=peer_id,
+        created_at_ms=1002,
+    )
+    child = await dag.create_node(
+        schema_id="counter",
+        payload={"value": 2},
+        parent_ids=(parent.header.node_id,),
+        signer=signer,
+        author=peer_id,
+        created_at_ms=1003,
+    )
+
+    with caplog.at_level(logging.INFO, logger="subnet.merkle_dag.dag"):
+        result = await dag.add_node(child, from_peer="peer-remote")
+
+    assert result.status.value == "orphan"
+    orphan_records = [record for record in caplog.records if getattr(record, "event", None) == "dag_node_orphan_stored"]
+    assert len(orphan_records) == 1
+    assert "namespace=orphan-dag" in orphan_records[0].message
+    assert "schema_id=counter" in orphan_records[0].message
+    assert orphan_records[0].node_id == child.header.node_id
+    assert orphan_records[0].namespace == "orphan-dag"
+    assert orphan_records[0].schema_id == "counter"
+    assert orphan_records[0].from_peer == "peer-remote"
+    assert orphan_records[0].missing_parents == (parent.header.node_id,)
+
+
+@pytest.mark.asyncio
 async def test_orphan_resolution_after_parent_fetch():
     dag = _build_dag()
-    signer = _signer(4)
+    signer, peer_id = _signer_and_peer_id(4)
 
     parent = await dag.create_node(
         schema_id="counter",
         payload={"value": 10},
         parent_ids=(),
         signer=signer,
-        author="peer-d",
+        author=peer_id,
         created_at_ms=1004,
     )
     child = await dag.create_node(
@@ -195,7 +317,7 @@ async def test_orphan_resolution_after_parent_fetch():
         payload={"value": 11},
         parent_ids=(parent.header.node_id,),
         signer=signer,
-        author="peer-d",
+        author=peer_id,
         created_at_ms=1005,
     )
 
@@ -209,14 +331,14 @@ async def test_orphan_resolution_after_parent_fetch():
 @pytest.mark.asyncio
 async def test_multiple_heads():
     dag = _build_dag()
-    signer = _signer(5)
+    signer, peer_id = _signer_and_peer_id(5)
 
     root = await dag.create_node(
         schema_id="counter",
         payload={"value": 1},
         parent_ids=(),
         signer=signer,
-        author="peer-e",
+        author=peer_id,
         created_at_ms=1006,
     )
     left = await dag.create_node(
@@ -224,7 +346,7 @@ async def test_multiple_heads():
         payload={"value": 2},
         parent_ids=(root.header.node_id,),
         signer=signer,
-        author="peer-e",
+        author=peer_id,
         created_at_ms=1007,
     )
     right = await dag.create_node(
@@ -232,7 +354,7 @@ async def test_multiple_heads():
         payload={"value": 3},
         parent_ids=(root.header.node_id,),
         signer=signer,
-        author="peer-e",
+        author=peer_id,
         created_at_ms=1008,
     )
 
@@ -304,14 +426,14 @@ async def test_validator_can_compare_transport_sender_to_signed_identity():
 @pytest.mark.asyncio
 async def test_remote_node_rejects_created_at_far_in_future():
     dag = _build_dag(now_ms=lambda: 1_000)
-    signer = _signer(12)
+    signer, peer_id = _signer_and_peer_id(12)
 
     node = await dag.create_node(
         schema_id="counter",
         payload={"value": 1},
         parent_ids=(),
         signer=signer,
-        author="peer-h",
+        author=peer_id,
         created_at_ms=61_001,
     )
 
@@ -322,14 +444,14 @@ async def test_remote_node_rejects_created_at_far_in_future():
 @pytest.mark.asyncio
 async def test_local_node_add_can_use_fixed_created_at_without_remote_timestamp_check():
     dag = _build_dag(now_ms=lambda: 1_000)
-    signer = _signer(13)
+    signer, peer_id = _signer_and_peer_id(13)
 
     node = await dag.create_node(
         schema_id="counter",
         payload={"value": 1},
         parent_ids=(),
         signer=signer,
-        author="peer-i",
+        author=peer_id,
         created_at_ms=61_001,
     )
 

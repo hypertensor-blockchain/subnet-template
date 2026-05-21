@@ -95,9 +95,9 @@ class SyncPubsubTopicValidator:
     def from_predicate_class(cls, predicate_cls: type, *args, **kwargs) -> "SyncPubsubTopicValidator":
         """
         Example:
-            AsyncPubsubTopicValidator.from_predicate_class(
+            SyncPubsubTopicValidator.from_predicate_class(
                 host.get_id(),
-                AsyncHeartbeatMsgValidator,
+                SyncHeartbeatMsgValidator,
                 subnet_info_tracker,
                 hypertensor,
                 subnet_id,
@@ -136,7 +136,7 @@ class AsyncHeartbeatMsgValidator:
         subnet_id: int,
         proof_of_stake: ProofOfStake | None = None,
         telemetry: Telemetry | None = None,
-        log_level: int = logging.INFO,
+        log_level: int = logging.DEBUG,
     ):
         self.my_peer_id = my_peer_id
         self.subnet_info_tracker = subnet_info_tracker

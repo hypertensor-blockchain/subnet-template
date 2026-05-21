@@ -46,14 +46,16 @@ class SyncScheduler:
         peer_provider: PeerSetProvider | None = None,
         telemetry: Telemetry | None = None,
         batch_window: float = 0.05,
+        retry_delay: float = 5.0,
         sync_on_startup: bool = True,
-        log_level: int = logging.INFO,
+        log_level: int = logging.DEBUG,
     ):
         self.runtime = runtime
         self.termination_event = termination_event
         self.peer_provider = peer_provider
         self.telemetry = telemetry
         self.batch_window = batch_window
+        self.retry_delay = retry_delay
         self.sync_on_startup = sync_on_startup
         self.log_level = log_level
 
@@ -90,15 +92,19 @@ class SyncScheduler:
                         preferred_peers,
                     )
 
-                await self.sync_once(preferred_peers)
+                remaining = await self.sync_once(preferred_peers)
+                if remaining and not self.termination_event.is_set():
+                    await self._sleep_or_termination(self.retry_delay)
+                    if not self.termination_event.is_set():
+                        await self.schedule()
 
             nursery.cancel_scope.cancel()
 
-    async def sync_once(self, preferred_peer_ids: Sequence[str] = ()) -> None:
+    async def sync_once(self, preferred_peer_ids: Sequence[str] = ()) -> tuple[str, ...]:
         """Inspect current orphan state and fetch any still-missing parent nodes."""
         missing_node_ids = await self._missing_node_ids()
         if not missing_node_ids:
-            return
+            return ()
 
         candidate_peers = await self._candidate_peer_ids(preferred_peer_ids)
         if not candidate_peers:
@@ -107,7 +113,7 @@ class SyncScheduler:
                 "Missing DAG nodes remain unresolved because no candidate peers are available: %s",
                 missing_node_ids,
             )
-            return
+            return missing_node_ids
 
         for peer_id in candidate_peers:
             if not missing_node_ids:
@@ -122,21 +128,20 @@ class SyncScheduler:
                 )
                 await self.runtime.coordinator.fetch_missing(peer_id, missing_node_ids)
             except Exception:
-                logger.exception("Failed DAG missing-node sync from peer %s", peer_id)
-                # if self.telemetry:
-                #     await self.telemetry.emit_async(
-                #         "dag_missing_node_sync_failed",
-                #         peer_id=peer_id,
-                #         missing_node_ids=list(missing_node_ids),
-                #     )
+                logger.warning("Failed DAG missing-node sync from peer %s", peer_id, exc_info=True)
 
             missing_node_ids = await self._missing_node_ids()
 
-        # if missing_node_ids and self.telemetry:
-        #     await self.telemetry.emit_async(
-        #         "dag_missing_node_sync_pending",
-        #         missing_node_ids=list(missing_node_ids),
-        #     )
+        if missing_node_ids:
+            logger.warning("DAG missing-node sync still pending for node ids: %s", list(missing_node_ids))
+
+        return missing_node_ids
+
+    async def _sleep_or_termination(self, delay: float) -> None:
+        if delay <= 0:
+            return
+        with trio.move_on_after(delay):
+            await self.termination_event.wait()
 
     async def _notify_on_termination(self) -> None:
         await self.termination_event.wait()

@@ -270,6 +270,34 @@ class SyncMessageKind(str, Enum):
     FETCH_RESPONSE = "fetch_response"
 
 
+def _wire_fields(value: dict[str, Any]) -> dict[str, Any]:
+    """Return fields shared by every DAG sync wire message."""
+    return {
+        "message_id": str(value["message_id"]),
+        "namespace": str(value["namespace"]),
+        "peer_id": str(value["peer_id"]),
+        "created_at_ms": int(value["created_at_ms"]),
+    }
+
+
+def _wire_primitive(message: Any, extra: dict[str, JSONValue] | None = None) -> dict[str, JSONValue]:
+    """Return the shared sync wire envelope plus message-specific fields."""
+    payload: dict[str, JSONValue] = {
+        "created_at_ms": message.created_at_ms,
+        "kind": message.kind.value,
+        "message_id": message.message_id,
+        "namespace": message.namespace,
+        "peer_id": message.peer_id,
+    }
+    if extra:
+        payload.update(extra)
+    return payload
+
+
+def _str_tuple(value: dict[str, Any], key: str) -> tuple[str, ...]:
+    return tuple(str(item) for item in value.get(key, []))
+
+
 @dataclass(frozen=True)
 class DagNodeGossip:
     """GossipSub message carrying a complete DAG node for live replication."""
@@ -284,24 +312,14 @@ class DagNodeGossip:
 
     def to_primitive(self) -> dict[str, JSONValue]:
         """Return the JSON-compatible wire representation."""
-        return {
-            "created_at_ms": self.created_at_ms,
-            "kind": self.kind.value,
-            "message_id": self.message_id,
-            "namespace": self.namespace,
-            "node": self.node.to_primitive(),
-            "peer_id": self.peer_id,
-        }
+        return _wire_primitive(self, {"node": self.node.to_primitive()})
 
     @classmethod
     def from_primitive(cls, value: dict[str, Any]) -> "DagNodeGossip":
         """Construct a node gossip message from a JSON-compatible mapping."""
         return cls(
-            message_id=str(value["message_id"]),
-            namespace=str(value["namespace"]),
-            peer_id=str(value["peer_id"]),
+            **_wire_fields(value),
             node=DagNode.from_primitive(dict(value["node"])),
-            created_at_ms=int(value["created_at_ms"]),
         )
 
 
@@ -320,26 +338,21 @@ class DagAnnouncement:
 
     def to_primitive(self) -> dict[str, JSONValue]:
         """Return the JSON-compatible wire representation."""
-        return {
-            "created_at_ms": self.created_at_ms,
-            "head_ids": list(self.head_ids),
-            "kind": self.kind.value,
-            "message_id": self.message_id,
-            "namespace": self.namespace,
-            "node_count": self.node_count,
-            "peer_id": self.peer_id,
-        }
+        return _wire_primitive(
+            self,
+            {
+                "head_ids": list(self.head_ids),
+                "node_count": self.node_count,
+            },
+        )
 
     @classmethod
     def from_primitive(cls, value: dict[str, Any]) -> "DagAnnouncement":
         """Construct an announcement from a JSON-compatible mapping."""
         return cls(
-            message_id=str(value["message_id"]),
-            namespace=str(value["namespace"]),
-            peer_id=str(value["peer_id"]),
-            head_ids=tuple(str(head_id) for head_id in value.get("head_ids", [])),
+            **_wire_fields(value),
+            head_ids=_str_tuple(value, "head_ids"),
             node_count=int(value["node_count"]),
-            created_at_ms=int(value["created_at_ms"]),
         )
 
 
@@ -358,26 +371,21 @@ class DagInventoryRequest:
 
     def to_primitive(self) -> dict[str, JSONValue]:
         """Return the JSON-compatible wire representation."""
-        return {
-            "created_at_ms": self.created_at_ms,
-            "kind": self.kind.value,
-            "known_heads": list(self.known_heads),
-            "message_id": self.message_id,
-            "namespace": self.namespace,
-            "node_count": self.node_count,
-            "peer_id": self.peer_id,
-        }
+        return _wire_primitive(
+            self,
+            {
+                "known_heads": list(self.known_heads),
+                "node_count": self.node_count,
+            },
+        )
 
     @classmethod
     def from_primitive(cls, value: dict[str, Any]) -> "DagInventoryRequest":
         """Construct an inventory request from a JSON-compatible mapping."""
         return cls(
-            message_id=str(value["message_id"]),
-            namespace=str(value["namespace"]),
-            peer_id=str(value["peer_id"]),
-            known_heads=tuple(str(head_id) for head_id in value.get("known_heads", [])),
+            **_wire_fields(value),
+            known_heads=_str_tuple(value, "known_heads"),
             node_count=int(value["node_count"]),
-            created_at_ms=int(value["created_at_ms"]),
         )
 
 
@@ -395,24 +403,14 @@ class DagInventoryResponse:
 
     def to_primitive(self) -> dict[str, JSONValue]:
         """Return the JSON-compatible wire representation."""
-        return {
-            "created_at_ms": self.created_at_ms,
-            "kind": self.kind.value,
-            "message_id": self.message_id,
-            "namespace": self.namespace,
-            "peer_id": self.peer_id,
-            "summary": self.summary.to_primitive(),
-        }
+        return _wire_primitive(self, {"summary": self.summary.to_primitive()})
 
     @classmethod
     def from_primitive(cls, value: dict[str, Any]) -> "DagInventoryResponse":
         """Construct an inventory response from a JSON-compatible mapping."""
         return cls(
-            message_id=str(value["message_id"]),
-            namespace=str(value["namespace"]),
-            peer_id=str(value["peer_id"]),
+            **_wire_fields(value),
             summary=DagSummary.from_primitive(dict(value["summary"])),
-            created_at_ms=int(value["created_at_ms"]),
         )
 
 
@@ -432,28 +430,23 @@ class DagFetchRequest:
 
     def to_primitive(self) -> dict[str, JSONValue]:
         """Return the JSON-compatible wire representation."""
-        return {
-            "created_at_ms": self.created_at_ms,
-            "include_bodies": self.include_bodies,
-            "kind": self.kind.value,
-            "max_ancestor_depth": self.max_ancestor_depth,
-            "message_id": self.message_id,
-            "namespace": self.namespace,
-            "node_ids": list(self.node_ids),
-            "peer_id": self.peer_id,
-        }
+        return _wire_primitive(
+            self,
+            {
+                "include_bodies": self.include_bodies,
+                "max_ancestor_depth": self.max_ancestor_depth,
+                "node_ids": list(self.node_ids),
+            },
+        )
 
     @classmethod
     def from_primitive(cls, value: dict[str, Any]) -> "DagFetchRequest":
         """Construct a fetch request from a JSON-compatible mapping."""
         return cls(
-            message_id=str(value["message_id"]),
-            namespace=str(value["namespace"]),
-            peer_id=str(value["peer_id"]),
-            node_ids=tuple(str(node_id) for node_id in value.get("node_ids", [])),
+            **_wire_fields(value),
+            node_ids=_str_tuple(value, "node_ids"),
             include_bodies=bool(value["include_bodies"]),
             max_ancestor_depth=int(value["max_ancestor_depth"]),
-            created_at_ms=int(value["created_at_ms"]),
         )
 
 
@@ -472,24 +465,19 @@ class DagFetchResponse:
 
     def to_primitive(self) -> dict[str, JSONValue]:
         """Return the JSON-compatible wire representation."""
-        return {
-            "created_at_ms": self.created_at_ms,
-            "kind": self.kind.value,
-            "message_id": self.message_id,
-            "namespace": self.namespace,
-            "nodes": [node.to_primitive() for node in self.nodes],
-            "not_found": list(self.not_found),
-            "peer_id": self.peer_id,
-        }
+        return _wire_primitive(
+            self,
+            {
+                "nodes": [node.to_primitive() for node in self.nodes],
+                "not_found": list(self.not_found),
+            },
+        )
 
     @classmethod
     def from_primitive(cls, value: dict[str, Any]) -> "DagFetchResponse":
         """Construct a fetch response from a JSON-compatible mapping."""
         return cls(
-            message_id=str(value["message_id"]),
-            namespace=str(value["namespace"]),
-            peer_id=str(value["peer_id"]),
+            **_wire_fields(value),
             nodes=tuple(DagNodeSnapshot.from_primitive(dict(item)) for item in value.get("nodes", [])),
-            not_found=tuple(str(node_id) for node_id in value.get("not_found", [])),
-            created_at_ms=int(value["created_at_ms"]),
+            not_found=_str_tuple(value, "not_found"),
         )

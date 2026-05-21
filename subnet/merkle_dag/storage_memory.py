@@ -26,7 +26,6 @@ class InMemoryDagStorage:
         self._bodies: dict[str, DagNodeBody] = {}
         self._heads: set[str] = set()
         self._orphans: dict[str, OrphanRecord] = {}
-        self._children: dict[str, set[str]] = {}
         self._waiting_children: dict[str, set[str]] = {}
         self._seen_announcements: set[str] = set()
         self._peer_states: dict[str, PeerSyncState] = {}
@@ -115,14 +114,6 @@ class InMemoryDagStorage:
     async def list_orphans(self) -> tuple[OrphanRecord, ...]:
         async with self._lock:
             return tuple(self._orphans[node_id] for node_id in sorted(self._orphans))
-
-    async def get_children(self, parent_id: str) -> tuple[str, ...]:
-        async with self._lock:
-            return tuple(sorted(self._children.get(parent_id, set())))
-
-    async def add_child(self, parent_id: str, child_id: str) -> None:
-        async with self._lock:
-            self._children.setdefault(parent_id, set()).add(child_id)
 
     async def get_waiting_children(self, parent_id: str) -> tuple[str, ...]:
         async with self._lock:

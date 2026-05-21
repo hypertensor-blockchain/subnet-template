@@ -16,12 +16,10 @@ from libp2p.network.stream.net_stream import (
 from libp2p.peer.id import ID as PeerID
 import trio
 
+from subnet.utils.logging_config import configure_logging
+
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler()],
-)
+configure_logging()
 logger = logging.getLogger("ping/1.0.0")
 
 PING_PROTOCOL_ID = TProtocol("/ipfs/ping/1.0.0")

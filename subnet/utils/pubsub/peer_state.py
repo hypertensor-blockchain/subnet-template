@@ -5,23 +5,18 @@ from typing import Any
 
 from libp2p.crypto.keys import KeyPair
 from libp2p.custom_types import TProtocol
-from libp2p.peer.id import ID
 from libp2p.pubsub.pubsub import Pubsub
 from pydantic import BaseModel
 import trio
 
 from subnet.hypertensor.chain_functions import Hypertensor
-from subnet.hypertensor.config import BLOCK_SECS
 from subnet.hypertensor.mock.local_chain_functions import LocalMockHypertensor
 from subnet.telemetry.telemetry import Telemetry
+from subnet.utils.logging_config import configure_logging
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler()],
-)
-logger = logging.getLogger("server/1.0.0")
+configure_logging()
+logger = logging.getLogger(__name__)
 
 
 class ServerState(Enum):
@@ -76,7 +71,7 @@ async def publish_peer_state(
     key_pair: KeyPair,
     hypertensor: LocalMockHypertensor | Hypertensor,
     telemetry: Telemetry | None = None,
-    log_level: int = logging.INFO,
+    log_level: int = logging.DEBUG,
 ):
     """Continuously publish peer state at regular intervals within each epoch."""
     try:
@@ -111,7 +106,7 @@ async def publish_peer_state(
         logger.exception(f"Error publishing peer state, error={e}")
 
 
-class PeerStatePublisherV1:
+class PeerStatePublisher:
     def __init__(
         self,
         pubsub: Pubsub,
@@ -122,21 +117,42 @@ class PeerStatePublisherV1:
         subnet_node_id: int,
         hypertensor: LocalMockHypertensor | Hypertensor,
         telemetry: Telemetry | None = None,
-        log_level: int = logging.INFO,
+        log_level: int = logging.DEBUG,
     ):
         self.pubsub = pubsub
         self.topic = topic
+        self.log_level = log_level
+        self._state: ServerState
         self.state = start_state
         self.role = start_role
         self.subnet_id = subnet_id
         self.subnet_node_id = subnet_node_id
         self.hypertensor = hypertensor
         self.telemetry = telemetry
-        self.log_level = log_level
+
+    @property
+    def state(self) -> ServerState:
+        return self._state
+
+    @state.setter
+    def state(self, new_state: ServerState) -> None:
+        self.update_state(new_state)
+
+    def update_state(self, new_state: ServerState) -> None:
+        if not isinstance(new_state, ServerState):
+            raise TypeError("Peer state must be a ServerState")
+
+        previous_state = getattr(self, "_state", None)
+        self._state = new_state
+        if previous_state is not None and previous_state is not new_state:
+            logger.log(
+                self.log_level,
+                "Updated peer state from %s to %s",
+                previous_state,
+                new_state,
+            )
 
     async def run(self):
-        epoch_length = self.hypertensor.get_epoch_length()
-        sleep_duration = (epoch_length * BLOCK_SECS) / 4
         while True:
             await self.publish()
             await trio.sleep(2)

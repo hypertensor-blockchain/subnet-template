@@ -2,7 +2,7 @@ import os
 import shutil
 from typing import Any
 
-from rocksdict import Rdict
+from rocksdict import AccessType, Rdict
 
 
 class RocksDB:
@@ -18,9 +18,9 @@ class RocksDB:
     def __init__(self, base_path: str | None = None, read_only: bool = False):
         assert base_path is not None, "Path must be specified"
         self.base_path = base_path
-        self.db_path = f"{base_path}_store"
+        self.db_path = f"{base_path}"
         if read_only:
-            self.store = Rdict(self.db_path, options={"read_only": True})
+            self.store = Rdict(self.db_path, access_type=AccessType.read_only())
         else:
             self.store = Rdict(self.db_path)
 

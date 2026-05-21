@@ -28,13 +28,10 @@ from subnet.hypertensor.chain_data import (
     SubnetNodeStakeInfo,
 )
 from subnet.hypertensor.config import BLOCK_SECS
+from subnet.utils.logging_config import configure_logging
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler()],
-)
+configure_logging()
 logger = logging.getLogger(__name__)
 
 

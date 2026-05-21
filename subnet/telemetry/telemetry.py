@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 class Telemetry:
     """
-    Production-grade Telemetry client using Trio.
+    elemetry client
 
     Features:
     - Non-spinning worker loop with exponential backoff.
@@ -97,6 +97,7 @@ class Telemetry:
         """
         Worker loop with exponential backoff and retry of the in-flight message.
         """
+        logger.info("Starting Telemetry")
         backoff = 1
         max_backoff = 120
         pending_msg = None  # Track the message in transit

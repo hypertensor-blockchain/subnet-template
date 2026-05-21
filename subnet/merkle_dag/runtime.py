@@ -37,7 +37,6 @@ class MerkleDagRuntime:
         request_client: PeerRequestClient | None = None,
         gossip_publisher: GossipPublisher | None = None,
         max_fetch_batch: int = 32,
-        max_ancestor_depth: int = 64,
     ):
         self.db = db
         self.namespace = namespace
@@ -71,5 +70,4 @@ class MerkleDagRuntime:
             gossip_publisher=gossip_publisher,
             request_client=request_client,
             max_fetch_batch=max_fetch_batch,
-            max_ancestor_depth=max_ancestor_depth,
         )

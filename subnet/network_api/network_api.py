@@ -89,6 +89,18 @@ class NetworkApi:
             logger.error(f"Failed to call API protocol on peer {destination}: {e}")
             raise
 
+    def attest(self, subnet_id: int) -> bytes:
+        """
+        Call the attest extrinsic
+        """
+        if self.hypertensor is None:
+            raise Exception("API protocol not initialized")
+        try:
+            return self.hypertensor.attest(subnet_id)
+        except Exception as e:
+            logger.error(f"Failed to attest for {subnet_id}: {e}")
+            raise
+
 
 class NetworkApiServer:
     """
@@ -126,7 +138,7 @@ class NetworkApiServer:
         self.app.include_router(self.router)
 
     def _load_config(self) -> ApiConfig:
-        """Helper to load config from a file if provided. Returns a default/curent ApiConfig otherwise."""
+        """Helper to load config from a file if provided. Returns a default/current ApiConfig otherwise."""
         if self._config_file and self._config_file.exists():
             try:
                 with open(self._config_file, "r") as f:
@@ -153,6 +165,14 @@ class NetworkApiServer:
             await self.network_api.publish_topic(request.topic, request.message.encode("utf-8"))
             return {"status": "success", "topic": request.topic}
 
+        @self.router.post("/attest")
+        def attest(subnet_id: int):
+            """
+            Template route for publishing a gossip message to the network.
+            """
+            self.network_api.attest(subnet_id)
+            return {"status": "success"}
+
     def register_route(self, path: str, endpoint: Callable, methods: List[str] = ["POST"]):
         """
         Allows builders to dynamically inject routes without altering this class directly.
@@ -171,7 +191,7 @@ class NetworkApiServer:
 
         uvicorn_config = uvicorn.Config(
             app=self.app,
-            host=self.config.host,
+            host=self.config.listen_host,
             port=self.config.port,
             log_level="info",
             loop="asyncio",

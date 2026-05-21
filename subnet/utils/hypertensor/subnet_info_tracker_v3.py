@@ -12,11 +12,9 @@ from subnet.hypertensor.chain_functions import (
     subnet_node_class_to_enum,
 )
 from subnet.hypertensor.mock.local_chain_functions import LocalMockHypertensor
+from subnet.utils.logging_config import configure_logging
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
+configure_logging()
 logger = logging.getLogger("subnet-info-tracker-v3")
 
 
@@ -275,9 +273,3 @@ class SubnetInfoTracker:
             if net_id == subnet_id:
                 return peer_id
         return None
-
-    def get_seconds_since_previous_interval(self) -> float:
-        return 0
-
-    def get_seconds_remaining_until_next_epoch(self) -> float:
-        return 0

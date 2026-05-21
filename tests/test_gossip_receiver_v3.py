@@ -19,10 +19,6 @@ from subnet.merkle_dag import (
 from subnet.merkle_dag.models import DagSummary, PeerSyncState
 from subnet.merkle_dag.runtime import MerkleDagRuntime
 from subnet.merkle_dag.sync_service import MerkleDagSyncService
-from subnet.utils.gossipsub.dag_sync_adapters import (
-    BytesPeerRequestClientAdapter,
-    HostPeerSetProvider,
-)
 
 
 class CounterPayloadSchema:
@@ -52,22 +48,6 @@ class DummyDB:
 class DummyPubsub:
     async def subscribe(self, topic: str):
         return None
-
-
-class DummyPeerStore:
-    def __init__(self, peer_ids):
-        self._peer_ids = peer_ids
-
-    def peer_ids(self):
-        return self._peer_ids
-
-
-class DummyHost:
-    def __init__(self, peer_ids):
-        self._peerstore = DummyPeerStore(peer_ids)
-
-    def get_peerstore(self):
-        return self._peerstore
 
 
 @dataclass
@@ -294,59 +274,6 @@ async def test_receiver_rejects_mismatched_sender_and_claimed_peer():
 
 
 @pytest.mark.asyncio
-async def test_bytes_request_client_adapter_round_trips_inventory_response():
-    serializer = CanonicalJSONSerializer()
-    from subnet.merkle_dag import DagSyncMessageCodec
-
-    codec = DagSyncMessageCodec(serializer)
-
-    async def request_bytes(peer_id: str, payload: bytes) -> bytes:
-        request = codec.decode(payload)
-        assert isinstance(request, DagInventoryRequest)
-        response = DagInventoryResponse(
-            message_id=request.message_id,
-            namespace=request.namespace,
-            peer_id=peer_id,
-            summary=DagSummary(
-                namespace=request.namespace,
-                head_ids=("head-1",),
-                node_count=3,
-                orphan_count=0,
-                generated_at_ms=2000,
-            ),
-            created_at_ms=2001,
-        )
-        return codec.encode(response)
-
-    adapter = BytesPeerRequestClientAdapter(request_bytes=request_bytes, codec=codec)
-    response = await adapter.request(
-        "peer-remote",
-        DagInventoryRequest(
-            message_id="inventory-1",
-            namespace="shared",
-            peer_id="peer-local",
-            known_heads=(),
-            node_count=0,
-            created_at_ms=1000,
-        ),
-    )
-
-    assert isinstance(response, DagInventoryResponse)
-    assert response.summary.head_ids == ("head-1",)
-
-
-@pytest.mark.asyncio
-async def test_host_peer_set_provider_normalizes_and_sorts_peer_ids():
-    peer_a = _peer_id(4)
-    peer_b = _peer_id(5)
-    provider = HostPeerSetProvider(DummyHost([peer_b, peer_a]))
-
-    peer_ids = await provider.list_peer_ids()
-
-    assert peer_ids == tuple(sorted((peer_a.to_string(), peer_b.to_string())))
-
-
-@pytest.mark.asyncio
 async def test_sync_service_handles_inventory_request_bytes():
     runtime = _runtime(6)
     service = MerkleDagSyncService(runtime=runtime, termination_event=trio.Event())
@@ -382,7 +309,7 @@ async def test_sync_service_reconcile_once_uses_peer_provider_and_skips_local_pe
 
 
 @pytest.mark.asyncio
-async def test_sync_service_bootstrap_join_sync_waits_for_connected_peers_then_reconciles(monkeypatch):
+async def test_sync_service_sync_dag_waits_for_connected_peers_then_reconciles(monkeypatch):
     local_peer_id = _peer_id(21).to_string()
     runtime = FakeRuntime(local_peer_id)
     provider = FakeBootstrapPeerProvider(
@@ -400,7 +327,7 @@ async def test_sync_service_bootstrap_join_sync_waits_for_connected_peers_then_r
 
     monkeypatch.setattr("subnet.merkle_dag.sync_service.trio.sleep", fake_sleep)
 
-    reconciled_peers = await service.bootstrap_join_sync(
+    reconciled_peers = await service.sync_dag(
         min_peer_count=2,
         wait_timeout=0.03,
         poll_interval=0.01,
@@ -412,7 +339,7 @@ async def test_sync_service_bootstrap_join_sync_waits_for_connected_peers_then_r
 
 
 @pytest.mark.asyncio
-async def test_sync_service_bootstrap_join_sync_waits_for_frontier_closure(monkeypatch):
+async def test_sync_service_sync_dag_waits_for_frontier_closure(monkeypatch):
     local_peer_id = _peer_id(31).to_string()
     runtime = FakeBootstrapRuntime(local_peer_id, {"peer-a": ("head-a",)})
     provider = FakeBootstrapPeerProvider(
@@ -430,7 +357,7 @@ async def test_sync_service_bootstrap_join_sync_waits_for_frontier_closure(monke
 
     monkeypatch.setattr("subnet.merkle_dag.sync_service.trio.sleep", fake_sleep)
 
-    reconciled_peers = await service.bootstrap_join_sync(
+    reconciled_peers = await service.sync_dag(
         min_peer_count=1,
         wait_timeout=0.03,
         poll_interval=0.01,

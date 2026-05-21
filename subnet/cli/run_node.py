@@ -26,17 +26,14 @@ from subnet.server.server import Server
 from subnet.telemetry.telemetry import Telemetry
 from subnet.utils.crypto.store_key import get_key_pair
 from subnet.utils.db.database import RocksDB
+from subnet.utils.logging_config import configure_logging
 
 load_dotenv(os.path.join(Path.cwd(), ".env"))
 
 PHRASE = os.getenv("PHRASE")
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler()],
-)
+configure_logging()
 logger = logging.getLogger(__name__)
 
 

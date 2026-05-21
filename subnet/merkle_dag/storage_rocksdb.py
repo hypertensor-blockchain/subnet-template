@@ -22,7 +22,6 @@ class RocksDBDagStorage:
     ORPHANS_MAP = "dag_orphans"
     SEEN_MAP = "dag_seen_announcements"
     PEER_STATE_MAP = "dag_peer_state"
-    CHILDREN_KEY = "dag_children"
     WAITING_KEY = "dag_waiting"
 
     def __init__(
@@ -169,21 +168,8 @@ class RocksDBDagStorage:
     async def list_orphans(self) -> tuple[OrphanRecord, ...]:
         async with self._lock:
             raw_orphans = await trio.to_thread.run_sync(self._db.nmap_get_all, self._scope(self.ORPHANS_MAP))
-        orphans = [
-            OrphanRecord.from_primitive(json.loads(str(raw_record)))
-            for raw_record in raw_orphans.values()
-        ]
+        orphans = [OrphanRecord.from_primitive(json.loads(str(raw_record))) for raw_record in raw_orphans.values()]
         return tuple(sorted(orphans, key=lambda orphan: orphan.node_id))
-
-    async def get_children(self, parent_id: str) -> tuple[str, ...]:
-        async with self._lock:
-            return tuple(self._load_list(self._scope(self.CHILDREN_KEY), parent_id))
-
-    async def add_child(self, parent_id: str, child_id: str) -> None:
-        async with self._lock:
-            children = self._load_list(self._scope(self.CHILDREN_KEY), parent_id)
-            children.append(child_id)
-            self._save_list(self._scope(self.CHILDREN_KEY), parent_id, children)
 
     async def get_waiting_children(self, parent_id: str) -> tuple[str, ...]:
         async with self._lock:

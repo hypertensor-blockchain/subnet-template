@@ -1,5 +1,6 @@
 """API Protocol for communication between peers that have APIs."""
 
+from dataclasses import dataclass
 import json
 import logging
 import os
@@ -24,13 +25,10 @@ from subnet.protocols.pb.api_protocol_pb2 import (
     ApiProtocolMessage,
 )
 from subnet.telemetry.telemetry import Telemetry
+from subnet.utils.logging_config import configure_logging
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler()],
-)
+configure_logging()
 logger = logging.getLogger("api_protocol/1.0.0")
 
 # Protocol ID - this must match between all peers using this protocol
@@ -38,11 +36,93 @@ PROTOCOL_ID = "/subnet/api_protocol/1.0.0"
 MAX_READ_LEN = 2**32 - 1
 
 
+@dataclass(frozen=True, slots=True)
+class ApiRouteConfig:
+    """Configuration for one route exposed through ``ApiProtocol``."""
+
+    url: str
+    stream: bool = False
+
+
 class ApiProtocolConfig:
     """
     Configuration for the ApiProtocol.
+
     Allows for in-memory routes and an optional persistent JSON config file
     that can be updated on the fly to change API routes without restarting.
+
+    The config maps public route names used by peer calls to local or external
+    HTTP URLs. Each route also declares whether it supports streaming with the
+    ``stream`` flag. For example, when a remote peer calls
+    ``route="inference"``, ``ApiProtocol`` looks up ``"inference"`` here and
+    forwards the request to the configured URL.
+
+    In-memory setup:
+        Use ``routes`` when the route map is known when the node starts::
+
+            config = ApiProtocolConfig(
+                routes={
+                    "health": {
+                        "url": "http://127.0.0.1:8000/health",
+                        "stream": False,
+                    },
+                    "inference": {
+                        "url": "http://127.0.0.1:8000/v1/inference",
+                        "stream": True,
+                    },
+                    "events": {
+                        "url": "http://127.0.0.1:8000/v1/events",
+                        "stream": False,
+                    },
+                },
+            )
+            api_protocol = ApiProtocol(host=host, config=config)
+
+        Peers then call the route by name::
+
+            response = await api_protocol.call_remote(
+                destination=peer_multiaddr,
+                route="inference",
+                method="POST",
+                headers={"content-type": "application/json"},
+                body=b'{"prompt": "hello"}',
+            )
+
+    Config-file setup:
+        Use ``config_file`` when you want to update routes without restarting
+        the node. The file should be a JSON object whose keys are route names.
+        Each value must include a target ``url`` and a boolean ``stream`` flag::
+
+            {
+              "health": {
+                "url": "http://127.0.0.1:8000/health",
+                "stream": false
+              },
+              "inference": {
+                "url": "http://127.0.0.1:8000/v1/inference",
+                "stream": false
+              },
+              "events": {
+                "url": "http://127.0.0.1:8000/v1/events",
+                "stream": true
+              }
+            }
+
+        Then create the config with the path to that file::
+
+            config = ApiProtocolConfig(
+                config_file="api_routes.json",
+            )
+            api_protocol = ApiProtocol(host=host, config=config)
+
+        ``get_route`` reads the JSON file on each lookup, so changes to the
+        file are picked up at runtime. If both ``routes`` and ``config_file``
+        are provided, the config file takes precedence for keys it contains and
+        ``routes`` is used as the fallback.
+
+        The legacy shorthand ``{"health": "http://127.0.0.1:8000/health"}``
+        is still accepted and is treated as ``stream=False``. New route configs
+        should use the explicit object format above.
     """
 
     def __init__(self, routes: dict = None, config_file: str = None):
@@ -51,6 +131,31 @@ class ApiProtocolConfig:
 
     def get_route(self, route_name: str) -> str | None:
         """Get the URL for a route. Checks the JSON config file first if it exists, then falls back to memory."""
+        route_config = self.get_route_config(route_name)
+        if route_config is None:
+            return None
+        return route_config.url
+
+    def get_route_config(self, route_name: str) -> ApiRouteConfig | None:
+        """Get the full route config, checking the config file before in-memory routes."""
+        raw_route = self._get_file_route(route_name)
+        if raw_route is not None:
+            try:
+                return self._parse_route_config(route_name, raw_route)
+            except ValueError as e:
+                logger.warning(f"Invalid ApiProtocolConfig route {route_name!r} in {self.config_file}: {e}")
+
+        raw_route = self.routes.get(route_name)
+        if raw_route is None:
+            return None
+
+        try:
+            return self._parse_route_config(route_name, raw_route)
+        except ValueError as e:
+            logger.warning(f"Invalid ApiProtocolConfig route {route_name!r}: {e}")
+            return None
+
+    def _get_file_route(self, route_name: str):
         if self.config_file and os.path.exists(self.config_file):
             try:
                 with open(self.config_file, "r") as f:
@@ -59,8 +164,30 @@ class ApiProtocolConfig:
                         return file_routes[route_name]
             except Exception as e:
                 logger.warning(f"Failed to read/parse ApiProtocolConfig file {self.config_file}: {e}")
+        return None
 
-        return self.routes.get(route_name)
+    @staticmethod
+    def _parse_route_config(route_name: str, raw_route) -> ApiRouteConfig:
+        if isinstance(raw_route, ApiRouteConfig):
+            return raw_route
+
+        if isinstance(raw_route, str):
+            if not raw_route:
+                raise ValueError("route URL must be a non-empty string")
+            return ApiRouteConfig(url=raw_route, stream=False)
+
+        if not isinstance(raw_route, dict):
+            raise ValueError("route config must be a URL string or an object with url and stream fields")
+
+        raw_url = raw_route.get("url")
+        if not isinstance(raw_url, str) or not raw_url:
+            raise ValueError("route config requires a non-empty string url")
+
+        raw_stream = raw_route.get("stream", False)
+        if not isinstance(raw_stream, bool):
+            raise ValueError("route config stream field must be true or false")
+
+        return ApiRouteConfig(url=raw_url, stream=raw_stream)
 
 
 class ApiProtocol:
@@ -72,13 +199,14 @@ class ApiProtocol:
     Peers register a single api_respond handler that processes incoming requests.
     """
 
-    def __init__(self, host: IHost, config: ApiProtocolConfig = None, telemetry: Telemetry | None = None):
+    def __init__(self, host: IHost, config: ApiProtocolConfig, telemetry: Telemetry | None = None):
         """
         Initialize the ApiProtocol.
 
         Args:
             host: The libp2p host instance
             config: Configuration defining the API routes
+            telemetry: Optional telemetry URL
 
         """
         self.host = host
@@ -211,11 +339,17 @@ class ApiProtocol:
                     f"Received API request from {peer_id}, route: {message.route}, type: {message.response_type}"
                 )
 
-                target_url = self.config.get_route(message.route)
+                route_config = self.config.get_route_config(message.route)
 
-                if not target_url:
+                if route_config is None:
                     logger.warning(f"Route not found: {message.route}")
                     await stream.write(b"Route not found")
+                    await stream.close()
+                    return
+
+                if message.response_type == ApiProtocolMessage.STREAM and not route_config.stream:
+                    logger.warning(f"Route does not support streaming: {message.route}")
+                    await stream.write(f"Route does not support streaming: {message.route}".encode("utf-8"))
                     await stream.close()
                     return
 
@@ -225,12 +359,14 @@ class ApiProtocol:
                         route=message.route,
                         method=message.method,
                         peer_id=peer_id,
+                        stream_requested=message.response_type == ApiProtocolMessage.STREAM,
+                        stream_supported=route_config.stream,
                     )
 
                 async with httpx.AsyncClient() as client:
                     async with client.stream(
                         method=message.method,
-                        url=target_url,
+                        url=route_config.url,
                         headers=dict(message.headers),
                         content=message.body if message.body else None,
                     ) as resp:

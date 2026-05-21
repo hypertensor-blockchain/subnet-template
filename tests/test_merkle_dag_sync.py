@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 
 import pytest
 from libp2p.crypto.ed25519 import create_new_key_pair
@@ -177,7 +178,7 @@ async def test_convergence_after_reconciliation():
 
 
 @pytest.mark.asyncio
-async def test_late_join_catch_up():
+async def test_late_join_catch_up(caplog: pytest.LogCaptureFixture):
     network = InMemoryRequestNetwork()
     source = _build_peer("peer-source", 5, network)
     late = _build_peer("peer-late", 6, network)
@@ -186,13 +187,26 @@ async def test_late_join_catch_up():
     middle_id = await _append_node(source, 2, (root_id,))
     head_id = await _append_node(source, 3, (middle_id,))
 
-    await late.coordinator.reconcile_with_peer(source.peer_id)
+    with caplog.at_level(logging.INFO, logger="subnet.merkle_dag.sync"):
+        await late.coordinator.reconcile_with_peer(source.peer_id)
 
     assert await late.dag.get_node(root_id) is not None
     assert await late.dag.get_node(middle_id) is not None
     assert await late.dag.get_node(head_id) is not None
     assert await late.dag.get_heads() == await source.dag.get_heads()
     assert await late.dag.storage.count_complete_nodes() == await source.dag.storage.count_complete_nodes()
+
+    sync_store_records = [
+        record for record in caplog.records if getattr(record, "event", None) == "peer_sync_dag_node_stored"
+    ]
+    assert {record.node_id for record in sync_store_records} == {root_id, middle_id, head_id}
+    assert {record.namespace for record in sync_store_records} == {"shared"}
+    assert {record.schema_id for record in sync_store_records} == {"counter"}
+    assert {record.topic for record in sync_store_records} == {"shared-topic"}
+    assert {record.from_peer for record in sync_store_records} == {source.peer_id}
+    assert all("topic=shared-topic" in record.message for record in sync_store_records)
+    assert all("namespace=shared" in record.message for record in sync_store_records)
+    assert all("schema_id=counter" in record.message for record in sync_store_records)
 
 
 @pytest.mark.asyncio
@@ -211,9 +225,7 @@ async def test_fetch_missing_requests_frontier_only_and_walks_back_recursively()
     assert await late.dag.get_node(middle_id) is not None
     assert await late.dag.get_node(head_id) is not None
 
-    fetch_messages = [
-        message for message in late.request_client.messages if isinstance(message, DagFetchRequest)
-    ]
+    fetch_messages = [message for message in late.request_client.messages if isinstance(message, DagFetchRequest)]
     assert [message.node_ids for message in fetch_messages] == [
         (head_id,),
         (middle_id,),

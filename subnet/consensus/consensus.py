@@ -16,13 +16,10 @@ from subnet.hypertensor.config import BLOCK_SECS
 from subnet.hypertensor.mock.local_chain_functions import LocalMockHypertensor
 from subnet.utils.db.database import RocksDB
 from subnet.utils.hypertensor.subnet_info_tracker_v3 import SubnetInfoTracker
+from subnet.utils.logging_config import configure_logging
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler()],
-)
+configure_logging()
 logger = logging.getLogger("consensus/1.0.0")
 
 
@@ -35,7 +32,6 @@ class Consensus:
         subnet_info_tracker: SubnetInfoTracker,
         hypertensor: Hypertensor | LocalMockHypertensor,
         skip_activate_subnet: bool = False,
-        start: bool = True,
     ):
         super().__init__()
         self.db = db

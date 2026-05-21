@@ -9,56 +9,53 @@ from libp2p import (
 from libp2p.crypto.keys import KeyPair
 from libp2p.crypto.x25519 import create_new_key_pair as create_new_x25519_key_pair
 from libp2p.custom_types import ISecureTransport, TProtocol
-from libp2p.discovery.rendezvous import (
-    RendezvousDiscovery,
-    RendezvousService,
-    config,
-)
 from libp2p.kad_dht.kad_dht import (
     DHTMode,
     KadDHT,
 )
 from libp2p.network.swarm import Swarm
-from libp2p.peer.persistent import create_async_peerstore, create_sync_peerstore, create_sync_rocksdb_peerstore
 from libp2p.pubsub.gossipsub import GossipSub
 from libp2p.pubsub.pubsub import Pubsub
 from libp2p.rcmgr.manager import ResourceManager
 from libp2p.records.pubkey import PublicKeyValidator
 from libp2p.records.validator import NamespacedValidator
 from libp2p.security.noise.transport import (
-    PROTOCOL_ID as NOISE_PROTOCOL_ID,
     Transport as NoiseTransport,
 )
 import libp2p.security.secio.transport as secio
 from libp2p.security.secio.transport import Transport as SecioTransport
 from libp2p.tools.async_service import background_trio_service
-from libp2p.transport.quic.config import QUICTransportConfig
 import trio
 
+from examples.dag.peer_state_dag_publisher import (
+    PeerRole,
+    PeerStateDagPublisher,
+    PeerStateData,
+    ServerState,
+)
 from subnet.config import GOSSIPSUB_PROTOCOL_ID
 from subnet.consensus.consensus import Consensus
 from subnet.hypertensor.chain_functions import Hypertensor
 from subnet.hypertensor.mock.local_chain_functions import LocalMockHypertensor
-from subnet.merkle_dag.runtime import MerkleDagRuntime
-from subnet.merkle_dag.sync_scheduler import SyncScheduler
-from subnet.merkle_dag.sync_service import MerkleDagSyncService
-from subnet.protocols.sync_protocol import (
+from subnet.merkle_dag import Libp2pKeyPairSigner
+from subnet.merkle_dag.bases.dag_gossip_system import DagGossipSystem, DagGossipTopicConfig
+from subnet.merkle_dag.bases.dag_publisher_template import DagPublisherTemplateSchema
+from subnet.protocols.dag_sync_protocol import (
+    DagPeerSetProvider,
     MerkleDagSyncProtocol,
-    PeerStateDagPeerSetProvider,
     SyncProtocolPeerRequestClient,
 )
 from subnet.telemetry.telemetry import Telemetry
-from subnet.utils.addresses import get_public_ip_interfaces
-from subnet.utils.connection import (
+from subnet.utils.connections.bootstrap import connect_to_bootstrap_nodes
+from subnet.utils.connections.connection import (
     basic_maintain_connections,
     demonstrate_random_walk_discovery,
     maintain_connections,
 )
-from subnet.utils.connections.bootstrap import connect_to_bootstrap_nodes
+from subnet.utils.dag.heartbeat_dag_publisher import HeartbeatDagPublisher, HeartbeatDagSchema  # noqa: F401
 from subnet.utils.db.database import RocksDB
-from subnet.utils.gossipsub.gossip_receiver import GossipReceiver
-from subnet.utils.gossipsub.peer_status_gossip_receiver import PeerStatusGossipReceiver
 from subnet.utils.hypertensor.subnet_info_tracker_v3 import SubnetInfoTracker
+from subnet.utils.logging_config import configure_logging
 from subnet.utils.patches import apply_all_patches
 from subnet.utils.pos.pos_transport import (
     PROTOCOL_ID as POS_PROTOCOL_ID,
@@ -66,15 +63,6 @@ from subnet.utils.pos.pos_transport import (
 )
 from subnet.utils.pos.proof_of_stake import ProofOfStake
 from subnet.utils.protocols.ping import handle_ping
-from subnet.utils.pubsub.custom_score_params import custom_score_params
-from subnet.utils.pubsub.heartbeat import (
-    HeartbeatPublisher,
-)
-from subnet.utils.pubsub.peer_state_publisher import PeerRole, PeerStateDagSchema, PeerStatePublisher, ServerState
-from subnet.utils.pubsub.pubsub_validation import (
-    SyncHeartbeatMsgValidator,
-    SyncPubsubTopicValidator,
-)
 from subnet.utils.pubsub.topics import HEARTBEAT_TOPIC, PEER_STATE_TOPIC
 
 if TYPE_CHECKING:
@@ -84,14 +72,13 @@ if TYPE_CHECKING:
 apply_all_patches()
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler()],
-)
+configure_logging()
 logger = logging.getLogger("server/1.0.0")
 
 PING_PROTOCOL_ID = TProtocol("/ipfs/ping/1.0.0")
+DAG_NAMESPACE = "general-dag"
+PEER_STATE_SCHEMA_ID = "peer-state"
+HEARTBEAT_SCHEMA_ID = "heartbeat"
 
 
 class Server:
@@ -125,9 +112,10 @@ class Server:
         publish_heartbeat_log_level: int = logging.DEBUG,
         maintain_connections_log_level: int = logging.DEBUG,
         dag_startup_sync_min_connected_peers: int = 2,
-        dag_startup_sync_timeout: float = 30.0,
-        dag_startup_sync_settle_time: float = 3.0,
+        dag_startup_sync_timeout: float = 180.0,
+        dag_startup_sync_settle_time: float = 10.0,
         dag_startup_sync_poll_interval: float = 1.0,
+        dag_missing_sync_retry_delay: float = 5.0,
         **kwargs,
     ):
         logger.info(f"Server starting subnet_id={subnet_id}")
@@ -161,6 +149,7 @@ class Server:
         self.dag_startup_sync_timeout = dag_startup_sync_timeout
         self.dag_startup_sync_settle_time = dag_startup_sync_settle_time
         self.dag_startup_sync_poll_interval = dag_startup_sync_poll_interval
+        self.dag_missing_sync_retry_delay = dag_missing_sync_retry_delay
 
     async def run(self):
         try:
@@ -397,154 +386,143 @@ class Server:
                                         host,
                                         telemetry=self.telemetry,
                                         log_level=self.maintain_connections_log_level,
+                                        gossipsub=gossipsub,
+                                        pubsub=pubsub,
+                                        dht=dht,
                                     )
                                 )
 
-                            # -----------------------------
-                            # Start Merkle DAG sync service
-                            # -----------------------------
+                            # ---------------------------------------
+                            # Start Merkle DAG gossip + sync template
+                            # ---------------------------------------
                             sync_protocol = MerkleDagSyncProtocol(
                                 host=host,
                                 db=self.db,
                                 dht=dht,
+                                pubsub=pubsub,
+                                gossipsub=gossipsub,
                                 telemetry=self.telemetry,
                             )
                             request_client = SyncProtocolPeerRequestClient(sync_protocol)
-                            peer_provider = PeerStateDagPeerSetProvider(sync_protocol)
+                            peer_provider = DagPeerSetProvider(sync_protocol)
 
-                            runtime = MerkleDagRuntime(
-                                db=self.db,
-                                payload_schemas=[PeerStateDagSchema()],
-                                local_peer_id=host.get_id(),
-                                namespace="peer-state",
-                                dag_topic=PEER_STATE_TOPIC,
-                                request_client=request_client,
-                            )
-
-                            sync_scheduler = SyncScheduler(
-                                runtime=runtime,
-                                termination_event=termination_event,
-                                peer_provider=peer_provider,
-                                telemetry=self.telemetry,
-                            )
-
-                            peer_status_receiver = PeerStatusGossipReceiver(
+                            dag_system = DagGossipSystem(
                                 pubsub=pubsub,
                                 termination_event=termination_event,
-                                runtime=runtime,
-                                dag_topic=PEER_STATE_TOPIC,
-                                telemetry=self.telemetry,
                                 db=self.db,
-                                sync_scheduler=sync_scheduler,
-                            )
-                            nursery.start_soon(sync_scheduler.run)
-                            nursery.start_soon(peer_status_receiver.run)
-
-                            sync_service = MerkleDagSyncService(
-                                runtime=runtime,
-                                termination_event=termination_event,
-                                peer_provider=peer_provider,
+                                local_peer_id=host.get_id(),
+                                topics=[
+                                    DagGossipTopicConfig(
+                                        topic=PEER_STATE_TOPIC,
+                                        namespace=DAG_NAMESPACE,
+                                        payload_schemas=[
+                                            DagPublisherTemplateSchema(PEER_STATE_SCHEMA_ID, PeerStateData)
+                                        ],
+                                        schema_id=PEER_STATE_SCHEMA_ID,
+                                        author=host.get_id().to_string(),
+                                        parent_schema_id=PEER_STATE_SCHEMA_ID,
+                                        signer=Libp2pKeyPairSigner(self.key_pair),
+                                        skip_if_orphans=True,
+                                        request_client=request_client,
+                                        peer_provider=peer_provider,
+                                        sync_retry_delay=self.dag_missing_sync_retry_delay,
+                                        latest_node_snapshot_db_key=PEER_STATE_TOPIC,
+                                    ),
+                                    # DagGossipTopicConfig(
+                                    #     topic=HEARTBEAT_TOPIC,
+                                    #     namespace=DAG_NAMESPACE,
+                                    #     payload_schemas=[HeartbeatDagSchema(HEARTBEAT_SCHEMA_ID)],
+                                    #     schema_id=HEARTBEAT_SCHEMA_ID,
+                                    #     author=host.get_id().to_string(),
+                                    #     parent_schema_id=HEARTBEAT_SCHEMA_ID,
+                                    #     signer=Libp2pKeyPairSigner(self.key_pair),
+                                    #     skip_if_orphans=True,
+                                    #     request_client=request_client,
+                                    #     peer_provider=peer_provider,
+                                    #     sync_retry_delay=self.dag_missing_sync_retry_delay,
+                                    #     latest_node_snapshot_db_key=HEARTBEAT_TOPIC,
+                                    # ),
+                                ],
                                 telemetry=self.telemetry,
+                                log_level=self.gossip_receiver_log_level,
                             )
-                            sync_protocol.set_request_handler(sync_service.handle_sync_request_bytes)
+                            sync_protocol.set_request_handler(dag_system.handle_sync_request_bytes)
+                            nursery.start_soon(dag_system.run)
 
                             if not self.is_bootstrap:
-                                bootstrap_sync_peers = await sync_service.bootstrap_join_sync(
+                                sync_peers = await dag_system.sync_dag(
+                                    DAG_NAMESPACE,
                                     min_peer_count=self.dag_startup_sync_min_connected_peers,
                                     wait_timeout=self.dag_startup_sync_timeout,
                                     poll_interval=self.dag_startup_sync_poll_interval,
                                     settle_time=self.dag_startup_sync_settle_time,
                                 )
-                                logger.info("Initial DAG startup sync attempted with peers: %s", bootstrap_sync_peers)
+                                logger.info("Initial DAG startup sync attempted with peers: %s", sync_peers)
 
-                                # if self.enable_consensus:
-                                #     # Start consensus
-                                #     consensus = Consensus(
-                                #         db=self.db,
-                                #         subnet_id=self.subnet_id,
-                                #         subnet_node_id=self.subnet_node_id,
-                                #         subnet_info_tracker=subnet_info_tracker,
-                                #         hypertensor=self.hypertensor,
-                                #         skip_activate_subnet=False,
-                                #         start=True,
-                                #     )
-                                #     nursery.start_soon(consensus._main_loop)
-
-                                # ------------------------------------------------------------------
-                                # Start gossip publishers
-                                #
-                                # The following are gossip examples to get you started and display how
-                                # to use multiple topics.
-                                #
-                                # See topic validator above at `pubsub.set_topic_validator`
-                                # ------------------------------------------------------------------
-
-                                # # Start heartbeat publisher
-                                # heartbeat_publisher = HeartbeatPublisher(
-                                #     pubsub=pubsub,
-                                #     topic=HEARTBEAT_TOPIC,
-                                #     subnet_id=self.subnet_id,
-                                #     subnet_node_id=self.subnet_node_id,
-                                #     hypertensor=self.hypertensor,
-                                #     telemetry=self.telemetry,
-                                #     log_level=self.publish_heartbeat_log_level,
-                                # )
-                                # nursery.start_soon(heartbeat_publisher.run)
-
-                                # # Start peer state publisher
-                                # # Publish peer state JOINING, and later update it
-                                # peer_state_publisher = PeerStatePublisher(
-                                #     pubsub=pubsub,
-                                #     topic=PEER_STATE_TOPIC,
-                                #     start_state=ServerState.JOINING,
-                                #     start_role=PeerRole.VALIDATOR,
-                                #     subnet_id=self.subnet_id,
-                                #     subnet_node_id=self.subnet_node_id,
-                                #     hypertensor=self.hypertensor,
-                                #     telemetry=self.telemetry,
-                                #     log_level=self.publish_heartbeat_log_level,
-                                # )
-                                # nursery.start_soon(peer_state_publisher.run)
-
-                                # Add any other required custom logic here
-                                # await trio.sleep(5)
-
-                                # Update the publisher state to ONLINE for the next publish once peer is ready.
-                                # See `ServerState` for more information and to add more states.
-                                # peer_state_publisher.state = ServerState.ONLINE
-
-                                # RocksDBDagStorage
-
-                                peer_state_publisher = PeerStatePublisher(
-                                    pubsub=pubsub,
-                                    topic=PEER_STATE_TOPIC,
+                                peer_state_publisher = PeerStateDagPublisher(
+                                    dag_system=dag_system,
                                     start_state=ServerState.JOINING,
                                     start_role=PeerRole.VALIDATOR,
                                     subnet_id=self.subnet_id,
                                     subnet_node_id=self.subnet_node_id,
                                     hypertensor=self.hypertensor,
-                                    db=self.db,
-                                    key_pair=self.key_pair,
+                                    schema_id=PEER_STATE_SCHEMA_ID,
+                                    namespace=DAG_NAMESPACE,
+                                    multiaddr=str(optimal_addr),
+                                    dag_topic=PEER_STATE_TOPIC,
                                     telemetry=self.telemetry,
-                                    local_peer_id=host.get_id(),
-                                    multiaddr=optimal_addr,
-                                    runtime=runtime,
                                     termination_event=termination_event,
+                                    publish_interval_seconds=20.0,
                                     log_level=self.publish_heartbeat_log_level,
                                 )
-
                                 nursery.start_soon(peer_state_publisher.run)
 
-                            else:
-                                # TODO: Start Rendezvous
-                                # service = RendezvousService(host)
-                                pass
+                                # peer_state_publisher = PeerStateDagPublisher(
+                                #     dag_system=dag_system,
+                                #     start_state=ServerState.JOINING,
+                                #     start_role=PeerRole.VALIDATOR,
+                                #     subnet_id=self.subnet_id,
+                                #     subnet_node_id=self.subnet_node_id,
+                                #     hypertensor=self.hypertensor,
+                                #     schema_id=PEER_STATE_SCHEMA_ID,
+                                #     multiaddr=optimal_addr,
+                                #     telemetry=self.telemetry,
+                                #     termination_event=termination_event,
+                                #     namespace=DAG_NAMESPACE,
+                                #     publish_interval_seconds=20.0,
+                                #     log_level=self.publish_heartbeat_log_level,
+                                # )
+                                # nursery.start_soon(peer_state_publisher.run)
+
+                                # heartbeat_publisher = HeartbeatDagPublisher(
+                                #     dag_system=dag_system,
+                                #     subnet_id=self.subnet_id,
+                                #     subnet_node_id=self.subnet_node_id,
+                                #     hypertensor=self.hypertensor,
+                                #     schema_id=HEARTBEAT_SCHEMA_ID,
+                                #     multiaddr=optimal_addr,
+                                #     telemetry=self.telemetry,
+                                #     termination_event=termination_event,
+                                #     namespace=DAG_NAMESPACE,
+                                #     publish_interval_seconds=10.0,
+                                #     log_level=self.publish_heartbeat_log_level,
+                                # )
+                                # nursery.start_soon(heartbeat_publisher.run)
+
+                                if self.enable_consensus:
+                                    Consensus(
+                                        db=self.db,
+                                        subnet_id=self.subnet_id,
+                                        subnet_node_id=self.subnet_node_id,
+                                        subnet_info_tracker=subnet_info_tracker,
+                                        hypertensor=self.hypertensor,
+                                    )
 
                             await termination_event.wait()
 
         finally:
             # TODO: Publish peer state OFFLINE
-            # peer_state_publisher.state = ServerState.OFFLINE
+            # Peer-state publishing now lives outside DagGossipSystem.
 
             logger.info("Server shutting down")
             nursery.cancel_scope.cancel()

@@ -54,6 +54,13 @@ def test_api_whitelist_allowed(client):
     assert response.status_code == 422
 
 
+def test_api_config_accepts_legacy_host():
+    """Older config files that use `host` should still configure the bind address."""
+    config = ApiConfig(host="0.0.0.0")
+
+    assert config.listen_host == "0.0.0.0"
+
+
 def test_api_whitelist_blocked(api_server, mock_api):
     """Test that requests from non-whitelisted IPs are blocked by the IP middleware."""
     # Overwrite config to block "testclient"

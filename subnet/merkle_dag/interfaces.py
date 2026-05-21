@@ -135,12 +135,6 @@ class DagStorage(Protocol):
     async def list_orphans(self) -> tuple[OrphanRecord, ...]:
         """Return all orphan records currently waiting on missing parents."""
 
-    async def get_children(self, parent_id: str) -> tuple[str, ...]:
-        """Return known children for a parent."""
-
-    async def add_child(self, parent_id: str, child_id: str) -> None:
-        """Track a parent-to-child relationship."""
-
     async def get_waiting_children(self, parent_id: str) -> tuple[str, ...]:
         """Return orphaned children waiting on a parent."""
 

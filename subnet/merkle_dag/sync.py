@@ -18,7 +18,9 @@ from subnet.merkle_dag.models import (
     DagInventoryRequest,
     DagInventoryResponse,
     DagNodeGossip,
+    DagNodeSnapshot,
     DagSummary,
+    NodeIngestResult,
     NodeIngestStatus,
     PeerSyncState,
     SyncMessageKind,
@@ -30,6 +32,15 @@ logger = logging.getLogger(__name__)
 
 class DagSyncMessageCodec:
     """Encodes and decodes DAG sync messages over gossip and request-response transports."""
+
+    _DECODERS = {
+        SyncMessageKind.NODE_GOSSIP.value: DagNodeGossip.from_primitive,
+        SyncMessageKind.ANNOUNCEMENT.value: DagAnnouncement.from_primitive,
+        SyncMessageKind.INVENTORY_REQUEST.value: DagInventoryRequest.from_primitive,
+        SyncMessageKind.INVENTORY_RESPONSE.value: DagInventoryResponse.from_primitive,
+        SyncMessageKind.FETCH_REQUEST.value: DagFetchRequest.from_primitive,
+        SyncMessageKind.FETCH_RESPONSE.value: DagFetchResponse.from_primitive,
+    }
 
     def __init__(self, serializer: CanonicalJSONSerializer | None = None):
         self._serializer = serializer or CanonicalJSONSerializer()
@@ -44,18 +55,9 @@ class DagSyncMessageCodec:
         if not isinstance(value, dict):
             raise MessageDecodingError("Sync message must decode to an object")
         kind = value.get("kind")
-        if kind == SyncMessageKind.NODE_GOSSIP.value:
-            return DagNodeGossip.from_primitive(value)
-        if kind == SyncMessageKind.ANNOUNCEMENT.value:
-            return DagAnnouncement.from_primitive(value)
-        if kind == SyncMessageKind.INVENTORY_REQUEST.value:
-            return DagInventoryRequest.from_primitive(value)
-        if kind == SyncMessageKind.INVENTORY_RESPONSE.value:
-            return DagInventoryResponse.from_primitive(value)
-        if kind == SyncMessageKind.FETCH_REQUEST.value:
-            return DagFetchRequest.from_primitive(value)
-        if kind == SyncMessageKind.FETCH_RESPONSE.value:
-            return DagFetchResponse.from_primitive(value)
+        decoder = self._DECODERS.get(kind)
+        if decoder is not None:
+            return decoder(value)
         raise MessageDecodingError(f"Unsupported sync message kind: {kind!r}")
 
 
@@ -72,7 +74,6 @@ class MerkleDagSyncCoordinator:
         gossip_publisher: GossipPublisher | None = None,
         request_client: PeerRequestClient | None = None,
         max_fetch_batch: int = 32,
-        max_ancestor_depth: int = 64,
     ):
         self._dag = dag
         self._local_peer_id = local_peer_id
@@ -81,7 +82,6 @@ class MerkleDagSyncCoordinator:
         self._gossip_publisher = gossip_publisher
         self._request_client = request_client
         self._max_fetch_batch = max_fetch_batch
-        self._max_ancestor_depth = max_ancestor_depth
 
     def _now_ms(self) -> int:
         return int(time.time() * 1000)
@@ -243,6 +243,7 @@ class MerkleDagSyncCoordinator:
                         from_peer=peer_id,
                         validate_remote_timestamp=True,
                     )
+                self._log_peer_sync_store(snapshot, result, peer_id)
                 if result.status == NodeIngestStatus.ACCEPTED:
                     accepted_any = True
                 for missing_parent in result.missing_parents:
@@ -251,6 +252,40 @@ class MerkleDagSyncCoordinator:
 
             if accepted_any and self._gossip_publisher is not None:
                 await self.publish_heads()
+
+    def _log_peer_sync_store(
+        self,
+        snapshot: DagNodeSnapshot,
+        result: NodeIngestResult,
+        peer_id: str,
+    ) -> None:
+        if result.status not in {
+            NodeIngestStatus.ACCEPTED,
+            NodeIngestStatus.ORPHAN,
+            NodeIngestStatus.PENDING_BODY,
+        }:
+            return
+
+        logger.info(
+            "Peer sync stored DAG node %s topic=%s namespace=%s schema_id=%s status=%s from_peer=%s",
+            snapshot.header.node_id,
+            self._topic,
+            snapshot.header.namespace,
+            snapshot.header.schema_id,
+            result.status.value,
+            peer_id,
+            extra={
+                "event": "peer_sync_dag_node_stored",
+                "node_id": snapshot.header.node_id,
+                "namespace": snapshot.header.namespace,
+                "schema_id": snapshot.header.schema_id,
+                "topic": self._topic,
+                "from_peer": peer_id,
+                "ingest_status": result.status.value,
+                "missing_parents": result.missing_parents,
+                "resolved_nodes": result.resolved_nodes,
+            },
+        )
 
     async def handle_request(self, peer_id: str, request: SyncRequest) -> SyncResponse:
         """Serve a typed inventory or fetch request."""

@@ -98,6 +98,7 @@ activate_subnet = "subnet.cli.hypertensor.subnet.activate:main"
 register_node = "subnet.cli.hypertensor.node.register:main"
 run_api = "subnet.api.main:cli"
 run_api_keys = "subnet.api.auth.cli:main"
+dag_replication_monitor = "subnet.cli.dag.dag_replication_monitor:main"
 
 [tool.setuptools]
 packages = ["subnet"]

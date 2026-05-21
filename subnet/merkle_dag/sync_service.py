@@ -37,7 +37,6 @@ import trio
 from subnet.merkle_dag import DagAnnouncement, DagFetchRequest, DagInventoryRequest
 from subnet.merkle_dag.interfaces import PeerSetProvider
 from subnet.merkle_dag.runtime import MerkleDagRuntime
-from subnet.telemetry.telemetry import Telemetry
 
 logger = logging.getLogger(__name__)
 
@@ -70,18 +69,14 @@ class MerkleDagSyncService:
         termination_event: trio.Event,
         *,
         peer_provider: PeerSetProvider | None = None,
-        telemetry: Telemetry | None = None,
         enable_periodic_reconciliation: bool = False,
         reconciliation_interval: float = 30.0,
-        log_level: int = logging.INFO,
     ):
         self.runtime = runtime
         self.termination_event = termination_event
         self.peer_provider = peer_provider
-        self.telemetry = telemetry
         self.enable_periodic_reconciliation = enable_periodic_reconciliation
         self.reconciliation_interval = reconciliation_interval
-        self.log_level = log_level
 
     async def handle_announcement(self, announcement: DagAnnouncement, *, source_peer: str) -> bool:
         """
@@ -93,15 +88,7 @@ class MerkleDagSyncService:
         larger node count. If the announcement reveals no new information, this
         method can return after lightweight bookkeeping only.
         """
-        processed = await self.runtime.coordinator.handle_announcement(announcement, source_peer=source_peer)
-        # if processed and self.telemetry:
-        #     await self.telemetry.emit_async(
-        #         "dag_announcement_received",
-        #         peer_id=source_peer,
-        #         head_ids=list(announcement.head_ids),
-        #         node_count=announcement.node_count,
-        #     )
-        return processed
+        return await self.runtime.coordinator.handle_announcement(announcement, source_peer=source_peer)
 
     async def reconcile_once(self, peer_ids: Sequence[str] | None = None) -> None:
         """
@@ -123,10 +110,8 @@ class MerkleDagSyncService:
                 await self.runtime.coordinator.reconcile_with_peer(peer_id)
             except Exception:
                 logger.exception("DAG reconciliation failed for peer %s", peer_id)
-                # if self.telemetry:
-                #     await self.telemetry.emit_async("dag_reconcile_failed", peer_id=peer_id)
 
-    async def bootstrap_join_sync(
+    async def sync_dag(
         self,
         *,
         min_peer_count: int = 2,
@@ -208,12 +193,6 @@ class MerkleDagSyncService:
         if not isinstance(message, DagInventoryRequest | DagFetchRequest):
             raise TypeError(f"Unexpected sync request type: {type(message)!r}")
         response = await self.runtime.coordinator.handle_request(from_peer, message)
-        # if self.telemetry:
-        #     await self.telemetry.emit_async(
-        #         "dag_sync_request_served",
-        #         peer_id=from_peer,
-        #         request_type=type(message).__name__,
-        #     )
         return self.runtime.codec.encode(response)
 
     async def run(self) -> None:
@@ -289,34 +268,18 @@ class MerkleDagSyncService:
 
         return tuple(ordered)
 
-    async def _local_complete_node_count(self) -> int | None:
-        dag = getattr(self.runtime, "dag", None)
-        storage = None if dag is None else getattr(dag, "storage", None)
-        count_complete_nodes = None if storage is None else getattr(storage, "count_complete_nodes", None)
-        if not callable(count_complete_nodes):
-            return None
-
-        count = count_complete_nodes()
-        if inspect.isawaitable(count):
-            count = await count
-        if count is None:
-            return None
-        return int(count)
-
     async def _startup_sync_converged(self, peer_ids: Sequence[str]) -> bool:
-        dag = getattr(self.runtime, "dag", None)
-        storage = None if dag is None else getattr(dag, "storage", None)
-        if storage is None or not peer_ids:
+        if not peer_ids:
             return False
 
-        orphan_count = await self._storage_int_call(storage, "count_orphans")
-        if orphan_count is not None and orphan_count > 0:
+        storage = self.runtime.dag.storage
+        if await storage.count_orphans() > 0:
             return False
 
-        local_node_count = await self._local_complete_node_count()
+        local_node_count = await storage.count_complete_nodes()
 
         for peer_id in peer_ids:
-            peer_state = await self._storage_call(storage, "get_peer_state", peer_id)
+            peer_state = await storage.get_peer_state(peer_id)
             if peer_state is None:
                 return False
 
@@ -325,37 +288,15 @@ class MerkleDagSyncService:
                 return False
 
             remote_node_count = getattr(summary, "node_count", None)
-            if local_node_count is not None and remote_node_count is not None:
-                if local_node_count < int(remote_node_count):
-                    return False
+            if remote_node_count is not None and local_node_count < int(remote_node_count):
+                return False
 
             for head_id in getattr(summary, "head_ids", ()) or ():
-                if not await self._storage_has_complete_node(storage, str(head_id)):
+                if not await self._storage_has_complete_node(str(head_id)):
                     return False
 
         return True
 
-    async def _storage_has_complete_node(self, storage: object, node_id: str) -> bool:
-        has_header = await self._storage_bool_call(storage, "has_header", node_id)
-        has_body = await self._storage_bool_call(storage, "has_body", node_id)
-        return has_header and has_body
-
-    async def _storage_call(self, storage: object, method_name: str, *args):
-        method = getattr(storage, method_name, None)
-        if not callable(method):
-            return None
-
-        result = method(*args)
-        if inspect.isawaitable(result):
-            result = await result
-        return result
-
-    async def _storage_bool_call(self, storage: object, method_name: str, *args) -> bool:
-        result = await self._storage_call(storage, method_name, *args)
-        return bool(result)
-
-    async def _storage_int_call(self, storage: object, method_name: str, *args) -> int | None:
-        result = await self._storage_call(storage, method_name, *args)
-        if result is None:
-            return None
-        return int(result)
+    async def _storage_has_complete_node(self, node_id: str) -> bool:
+        storage = self.runtime.dag.storage
+        return await storage.has_header(node_id) and await storage.has_body(node_id)

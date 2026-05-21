@@ -71,7 +71,7 @@ async def test_runtime_default_storage_keeps_heads_and_counts_isolated_by_namesp
         payload={"value": 1},
         parent_ids=(),
         signer=_signer(11),
-        author="peer-a",
+        author=_peer_id(11).to_string(),
         created_at_ms=1001,
     )
     node_b = await runtime_b.dag.create_node(
@@ -79,7 +79,7 @@ async def test_runtime_default_storage_keeps_heads_and_counts_isolated_by_namesp
         payload={"value": 2},
         parent_ids=(),
         signer=_signer(12),
-        author="peer-b",
+        author=_peer_id(12).to_string(),
         created_at_ms=1002,
     )
 
@@ -127,7 +127,7 @@ async def test_runtime_default_storage_keeps_orphans_and_waiting_children_isolat
         payload={"value": 10},
         parent_ids=(),
         signer=_signer(13),
-        author="peer-a",
+        author=_peer_id(13).to_string(),
         created_at_ms=1010,
     )
     child_a = await runtime_a.dag.create_node(
@@ -135,7 +135,7 @@ async def test_runtime_default_storage_keeps_orphans_and_waiting_children_isolat
         payload={"value": 11},
         parent_ids=(parent_a.header.node_id,),
         signer=_signer(14),
-        author="peer-a",
+        author=_peer_id(14).to_string(),
         created_at_ms=1011,
     )
 

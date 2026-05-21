@@ -13,14 +13,11 @@ from subnet.hypertensor.chain_functions import Hypertensor
 from subnet.hypertensor.config import BLOCK_SECS
 from subnet.hypertensor.mock.local_chain_functions import LocalMockHypertensor
 from subnet.telemetry.telemetry import Telemetry
+from subnet.utils.logging_config import configure_logging
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler()],
-)
-logger = logging.getLogger("server/1.0.0")
+configure_logging()
+logger = logging.getLogger(__name__)
 
 HEARTBEATS_PER_EPOCH = 1
 
@@ -58,7 +55,7 @@ async def publish_heartbeat_loop(
     key_pair: KeyPair,
     hypertensor: LocalMockHypertensor | Hypertensor,
     telemetry: Telemetry | None = None,
-    log_level: int = logging.INFO,
+    log_level: int = logging.DEBUG,
 ):
     """Continuously publish heartbeats at regular intervals within each epoch."""
     logger.log(log_level, "Starting publish heartbeat loop...")
@@ -125,7 +122,7 @@ class HeartbeatPublisher:
         subnet_node_id: int,
         hypertensor: LocalMockHypertensor | Hypertensor,
         telemetry: Telemetry | None = None,
-        log_level: int = logging.INFO,
+        log_level: int = logging.DEBUG,
     ):
         self.pubsub = pubsub
         self.topic = topic

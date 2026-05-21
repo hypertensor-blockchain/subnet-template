@@ -87,6 +87,8 @@ class DagValidator:
         if not self._signature_verifier.verify(self.header_signing_bytes(header), signature, public_key):
             raise SignatureVerificationError(f"Signature verification failed for node {header.node_id}")
 
+        self.validate_header_author(header)
+
     def validate_body(self, header: DagNodeHeader, body: DagNodeBody) -> None:
         """Validate a body against its header and payload schema."""
         if body.node_id != header.node_id:
@@ -117,6 +119,14 @@ class DagValidator:
                 f"Transport sender {source_peer} does not match signed node identity {signed_peer_id}"
             )
 
+    def validate_header_author(self, header: DagNodeHeader) -> None:
+        """Validate that the stored header author matches the signed identity."""
+        signed_peer_id = self.header_signer_peer_id(header)
+        if header.author != signed_peer_id:
+            raise SourcePeerMismatchError(
+                f"Header author {header.author} does not match signed node identity {signed_peer_id}"
+            )
+
     def validate_remote_header(self, header: DagNodeHeader) -> None:
         """Validate remote-only timestamp sanity constraints."""
         if self._max_future_skew_ms is None:
@@ -126,8 +136,7 @@ class DagValidator:
         max_allowed_ms = now_ms + self._max_future_skew_ms
         if header.created_at_ms > max_allowed_ms:
             raise TimestampValidationError(
-                f"Node {header.node_id} created_at_ms {header.created_at_ms} exceeds "
-                f"local allowance {max_allowed_ms}"
+                f"Node {header.node_id} created_at_ms {header.created_at_ms} exceeds local allowance {max_allowed_ms}"
             )
 
     def validate_node(self, node: DagNode) -> None:
