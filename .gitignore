@@ -135,3 +135,5 @@ Thumbs.db
 
 # SQlite
 *.db
+
+.codex

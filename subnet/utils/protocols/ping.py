@@ -1,5 +1,4 @@
 import logging
-import sys
 
 from libp2p.abc import (
     IHost,
@@ -17,12 +16,10 @@ from libp2p.network.stream.net_stream import (
 from libp2p.peer.id import ID as PeerID
 import trio
 
+from subnet.utils.logging_config import configure_logging
+
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler()],
-)
+configure_logging()
 logger = logging.getLogger("ping/1.0.0")
 
 PING_PROTOCOL_ID = TProtocol("/ipfs/ping/1.0.0")
@@ -105,17 +102,17 @@ class PingProtocol:
         for attempt in range(max_retries):
             try:
                 stream = await self.host.new_stream(peer_id, [PING_PROTOCOL_ID])
-                logger.info(f"Ping stream created successfully for peer {peer_id.to_base58()}")
+                logger.info(f"Ping stream created successfully for peer {peer_id.to_string()}")
                 return stream
             except Exception as e:
                 if attempt < max_retries - 1:
                     logger.info(
-                        f"Stream creation attempt {attempt + 1} for peer {peer_id.to_base58()} failed: {e}, retrying..."
+                        f"Stream creation attempt {attempt + 1} for peer {peer_id.to_string()} failed: {e}, retrying..."
                     )
                     await trio.sleep(retry_delay)
                 else:
                     logger.info(
-                        f"Stream creation failed after {max_retries} attempts for peer {peer_id.to_base58()}: {e}"
+                        f"Stream creation failed after {max_retries} attempts for peer {peer_id.to_string()}: {e}"
                     )
                     raise
         raise RuntimeError("Failed to create ping stream after retries")

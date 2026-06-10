@@ -7,15 +7,13 @@ from dotenv import load_dotenv
 from substrateinterface import Keypair, KeypairType
 from substrateinterface.utils.ecdsa_helpers import mnemonic_to_ecdsa_private_key
 
+from subnet.utils.logging_config import configure_logging
+
 load_dotenv(os.path.join(Path.cwd(), ".env"))
 
 PHRASE = os.getenv("PHRASE")
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler()],
-)
+configure_logging()
 logger = logging.getLogger(__name__)
 
 

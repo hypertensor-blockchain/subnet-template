@@ -28,13 +28,10 @@ from subnet.hypertensor.chain_functions import (
 from subnet.hypertensor.config import BLOCK_SECS, EPOCH_LENGTH
 from subnet.hypertensor.mock.mock_db import MockDatabase  # assume separate file
 from subnet.utils.crypto.store_key import get_peer_id
+from subnet.utils.logging_config import configure_logging
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler()],
-)
+configure_logging()
 logger = logging.getLogger("local-chain-functions")
 
 
@@ -69,6 +66,7 @@ class LocalMockHypertensor:
 
         if insert_mock_subnet_nodes[0]:
             # Insert mock bootnodes
+            logger.info("Inserting mock subnet nodes")
             try:
                 bootnode_peer_id = get_peer_id("bootnode.key")
                 self.db.insert_bootnode(

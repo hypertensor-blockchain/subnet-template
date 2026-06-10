@@ -28,13 +28,10 @@ from subnet.hypertensor.chain_data import (
     SubnetNodeStakeInfo,
 )
 from subnet.hypertensor.config import BLOCK_SECS
+from subnet.utils.logging_config import configure_logging
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler()],
-)
+configure_logging()
 logger = logging.getLogger(__name__)
 
 
@@ -140,6 +137,7 @@ class Hypertensor:
             self.hotkey = self.keypair.ss58_address
 
         self.epoch_length = None
+        self.subnet_slot: dict[int, int] = {}
 
     def get_block_number(self):
         @retry(wait=wait_fixed(BLOCK_SECS + 1), stop=stop_after_attempt(4))
@@ -1522,6 +1520,8 @@ class Hypertensor:
         """
         Query maximum subnet entry interval blocks with retry + reconnect
         """
+        if subnet_id in self.subnet_slot:
+            return self.subnet_slot[subnet_id]
 
         @retry(
             wait=wait_fixed(BLOCK_SECS + 1),
@@ -1549,6 +1549,10 @@ class Hypertensor:
                 # Query directly (avoid context manager which closes socket)
                 with self.interface as interface:
                     result = interface.query("Network", "SubnetSlot", [subnet_id])
+                    if result == None or result == "None":  # noqa: E711
+                        return result
+                    self.subnet_slot[subnet_id] = int(str(result))
+
                     return result
 
             except Exception as e:  # noqa: F841

@@ -5,13 +5,11 @@ from typing import Dict
 from libp2p.peer.id import ID as PeerID
 
 from subnet.hypertensor.chain_functions import Hypertensor
+from subnet.telemetry.telemetry import Telemetry
+from subnet.utils.logging_config import configure_logging
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler()],
-)
+configure_logging()
 logger = logging.getLogger("proof-of-stake")
 
 
@@ -21,6 +19,7 @@ class ProofOfStake:
         subnet_id: int,
         hypertensor: Hypertensor,
         min_class: int,
+        telemetry: Telemetry | None = None,
     ):
         super().__init__()
 
@@ -31,6 +30,8 @@ class ProofOfStake:
         self.peer_id_to_last_failed_pos: Dict[PeerID, float] = {}
         self.pos_fail_cooldown: float = 300
         self.min_class = min_class
+        # NOTE: To use telemetry, ProofOfStake must be converted to async
+        self.telemetry = telemetry
 
     def get_peer_id_last_success(self, peer_id: PeerID) -> float:
         return self.peer_id_to_last_successful_pos.get(peer_id, 0)

@@ -315,6 +315,80 @@ python -m subnet.cli.activate_subnet \
 --private_key "0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133"
 ```
 
+### Custom Protocols
+
+The API protocol is a custom protocol made for calling application layer technology hosted in either another server or a local API.
+
+To create custom protocols, you need to create a protobuf file and generate the corresponding python code.
+
+#### Protobufs
+
+Create a protobuf file in the `subnet/protocols/pb/` directory. Fill it out with the desired parameters.
+
+##### Example
+
+```protobuf
+syntax = "proto3";
+
+package custom_protocol.pb;
+
+message CustomProtocolMessage {
+    enum ResponseType {
+        UNARY = 0;
+        STREAM = 1;
+    }
+
+    string custom_parameter = 1;
+}
+```
+
+##### Generate protobuf files
+
+This example uses the API protocol. Fill in the correct paths.
+
+```bash
+# Install protoc
+python -m pip install grpcio-tools
+# Generate protobufs
+python -m grpc_tools.protoc -I=. --python_out=. subnet/protocols/pb/custom_protocol.proto
+```
+
+#### Read Custom Protobuf Message
+
+```python
+# Read varint-prefixed length for the message
+length_prefix = b""
+while True:
+    byte = await stream.read(1)
+    if not byte:
+        logger.warning("Stream closed while reading varint length")
+        await stream.close()
+        return
+    length_prefix += byte
+    if byte[0] & 0x80 == 0:
+        break
+msg_length = varint.decode_bytes(length_prefix)
+
+# Read the message bytes
+msg_bytes = await stream.read(msg_length)
+if len(msg_bytes) < msg_length:
+    logger.warning("Failed to read full message from stream")
+    await stream.close()
+    return
+
+try:
+    # Parse as protobuf
+    message = CustomProtocolMessage()
+    message.ParseFromString(msg_bytes)
+
+    ...
+except Exception as e:
+    logger.error(f"Failed to parse message: {e}")
+    await stream.write(f"Error processing request: {proto_err}".encode("utf-8"))
+
+await stream.close()
+```
+
 ### Code Quality
 
 This project uses several tools to maintain code quality:

@@ -14,11 +14,9 @@ from subnet.hypertensor.chain_functions import (
 )
 from subnet.hypertensor.config import BLOCK_SECS, SECONDS_PER_EPOCH
 from subnet.hypertensor.mock.local_chain_functions import LocalMockHypertensor
+from subnet.utils.logging_config import configure_logging
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
+configure_logging()
 logger = logging.getLogger("subnet-info-tracker-v2")
 
 

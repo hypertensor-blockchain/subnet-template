@@ -7,7 +7,14 @@ WORKDIR /app
 # Install build dependencies
 RUN apt-get update && apt-get install -y \
     build-essential \
+    gcc \
+    g++ \
+    make \
+    curl \
+    pkg-config \
     git \
+    python3-dev \
+    libgmp-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy project files
@@ -55,4 +62,5 @@ ENV API_PORT=8000
 ENV API_DB_PATH=/data/rocksdb
 
 # Run the API server
-CMD ["python", "-m", "subnet.api.main"]
+ENTRYPOINT ["python", "-m"]
+CMD ["subnet.api.main"]

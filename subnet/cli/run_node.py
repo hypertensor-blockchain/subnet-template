@@ -23,19 +23,17 @@ import trio
 from subnet.hypertensor.chain_functions import Hypertensor, KeypairFrom
 from subnet.hypertensor.mock.local_chain_functions import LocalMockHypertensor
 from subnet.server.server import Server
+from subnet.telemetry.telemetry import Telemetry
 from subnet.utils.crypto.store_key import get_key_pair
 from subnet.utils.db.database import RocksDB
+from subnet.utils.logging_config import configure_logging
 
 load_dotenv(os.path.join(Path.cwd(), ".env"))
 
 PHRASE = os.getenv("PHRASE")
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler()],
-)
+configure_logging()
 logger = logging.getLogger(__name__)
 
 
@@ -50,14 +48,24 @@ Examples:
 
 # Start bootnode (or start bootnode through `run_bootnode`)
 
+# 12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF
+
 python -m subnet.cli.run_node \
 --private_key_path bootnode.key \
 --port 38960 \
 --subnet_id 1 \
 --no_blockchain_rpc \
---is_bootstrap
+--is_bootstrap \
+--heartbeat_validator_log_level 20 \
+--gossip_receiver_log_level 20 \
+--publish_heartbeat_log_level 20 \
+--maintain_connections_log_level 20 \
+--telemetry_url ws://127.0.0.1:8080/ingest
+
 
 # Connect to bootnode
+
+# 12D3KooWMwW1VqH7uWtUc5UGoyMJp1dG26Nkosc6RkRJ7RNiW6Cb
 
 python -m subnet.cli.run_node \
 --private_key_path alith.key \
@@ -65,7 +73,14 @@ python -m subnet.cli.run_node \
 --bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
 --subnet_id 1 \
 --subnet_node_id 1 \
---no_blockchain_rpc
+--no_blockchain_rpc \
+--heartbeat_validator_log_level 20 \
+--gossip_receiver_log_level 20 \
+--publish_heartbeat_log_level 20 \
+--maintain_connections_log_level 20 \
+--telemetry_url ws://127.0.0.1:8080/ingest
+
+# 12D3KooWM5J4zS17XR2LHGZgRpmzbeqg4Eibyq8sbRLwRuWxJqsV
 
 python -m subnet.cli.run_node \
 --private_key_path baltathar.key \
@@ -74,7 +89,14 @@ python -m subnet.cli.run_node \
 --bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
 --subnet_id 1 \
 --subnet_node_id 2 \
---no_blockchain_rpc
+--no_blockchain_rpc \
+--heartbeat_validator_log_level 20 \
+--gossip_receiver_log_level 20 \
+--publish_heartbeat_log_level 20 \
+--maintain_connections_log_level 20 \
+--telemetry_url ws://127.0.0.1:8080/ingest
+
+# 12D3KooWKxAhu5U8SreDZpokVkN6ciTBbsHxteo3Vmq6Cpuf8KEt
 
 python -m subnet.cli.run_node \
 --private_key_path charleth.key \
@@ -82,7 +104,14 @@ python -m subnet.cli.run_node \
 --bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
 --subnet_id 1 \
 --subnet_node_id 3 \
---no_blockchain_rpc
+--no_blockchain_rpc \
+--heartbeat_validator_log_level 20 \
+--gossip_receiver_log_level 20 \
+--publish_heartbeat_log_level 20 \
+--maintain_connections_log_level 20 \
+--telemetry_url ws://127.0.0.1:8080/ingest
+
+# 12D3KooWD1BgwEJGUXz3DsKVXGFq3VcmHRjeX56NKpyEa1QAP6uV
 
 python -m subnet.cli.run_node \
 --private_key_path dorothy.key \
@@ -90,39 +119,81 @@ python -m subnet.cli.run_node \
 --bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
 --subnet_id 1 \
 --subnet_node_id 4 \
---no_blockchain_rpc
+--no_blockchain_rpc \
+--heartbeat_validator_log_level 20 \
+--gossip_receiver_log_level 20 \
+--publish_heartbeat_log_level 20 \
+--maintain_connections_log_level 20 \
+--telemetry_url ws://127.0.0.1:8080/ingest
+
+# 12D3KooWMGKEpzz3EWGU2ayhwFriRh23QnQ479Ctfj8xSmDRirde
 
 python -m subnet.cli.run_node \
---private_key_path faith.key \
+--private_key_path ethan.key \
 --port 38965 \
 --bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
 --subnet_id 1 \
 --subnet_node_id 5 \
---no_blockchain_rpc
+--no_blockchain_rpc \
+--heartbeat_validator_log_level 20 \
+--gossip_receiver_log_level 20 \
+--publish_heartbeat_log_level 20 \
+--maintain_connections_log_level 20 \
+--telemetry_url ws://127.0.0.1:8080/ingest
+
+# 12D3KooWF963f4jiFX26xDKu7BrqtVYTx4Jk8rUQQUxwiJQjVFWH
 
 python -m subnet.cli.run_node \
---private_key_path george.key \
+--private_key_path faith.key \
 --port 38966 \
 --bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
 --subnet_id 1 \
 --subnet_node_id 6 \
---no_blockchain_rpc
+--no_blockchain_rpc \
+--heartbeat_validator_log_level 20 \
+--gossip_receiver_log_level 20 \
+--publish_heartbeat_log_level 20 \
+--maintain_connections_log_level 20 \
+--telemetry_url ws://127.0.0.1:8080/ingest
 
 python -m subnet.cli.run_node \
---private_key_path harry.key \
+--private_key_path george.key \
 --port 38967 \
 --bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
 --subnet_id 1 \
 --subnet_node_id 7 \
---no_blockchain_rpc
+--no_blockchain_rpc \
+--heartbeat_validator_log_level 20 \
+--gossip_receiver_log_level 20 \
+--publish_heartbeat_log_level 20 \
+--maintain_connections_log_level 20 \
+--telemetry_url ws://127.0.0.1:8080/ingest
 
 python -m subnet.cli.run_node \
---private_key_path ian.key \
+--private_key_path harry.key \
 --port 38968 \
 --bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
 --subnet_id 1 \
 --subnet_node_id 8 \
---no_blockchain_rpc
+--no_blockchain_rpc \
+--heartbeat_validator_log_level 20 \
+--gossip_receiver_log_level 20 \
+--publish_heartbeat_log_level 20 \
+--maintain_connections_log_level 20 \
+--telemetry_url ws://127.0.0.1:8080/ingest
+
+python -m subnet.cli.run_node \
+--private_key_path ian.key \
+--port 38969 \
+--bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
+--subnet_id 1 \
+--subnet_node_id 9 \
+--no_blockchain_rpc \
+--heartbeat_validator_log_level 20 \
+--gossip_receiver_log_level 20 \
+--publish_heartbeat_log_level 20 \
+--maintain_connections_log_level 20 \
+--telemetry_url ws://127.0.0.1:8080/ingest
 
 
 # Run locally with local RPC connection
@@ -223,6 +294,78 @@ python -m subnet.cli.run_node \
     )
 
     parser.add_argument(
+        "--disable_pubsub_validator",
+        action="store_true",
+        help="Disable pubsub validator",
+    )
+
+    parser.add_argument(
+        "--disable_consensus",
+        action="store_true",
+        help="Disable consensus",
+    )
+
+    parser.add_argument(
+        "--disable_proof_of_stake",
+        action="store_true",
+        help="Disable proof of stake",
+    )
+
+    parser.add_argument(
+        "--disable_strict_maintain_connections",
+        action="store_true",
+        help="Disable strictly maintain connections",
+    )
+
+    # Host specific arguments
+    parser.add_argument(
+        "--enable_mDNS",
+        action="store_true",
+        help="Enable mDNS discovery",
+    )
+    parser.add_argument(
+        "--enable_upnp",
+        action="store_true",
+        help="Enable UPnP discovery",
+    )
+    parser.add_argument(
+        "--enable_autotls",
+        action="store_true",
+        help="Enable AutoTLS",
+    )
+    parser.add_argument(
+        "--psk",
+        type=str,
+        default=None,
+        help="Pre-shared key for libp2p",
+    )
+
+    parser.add_argument(
+        "--heartbeat_validator_log_level",
+        type=int,
+        default=logging.DEBUG,
+        help="Log level for heartbeat validator. 10=DEBUG, 20=INFO, 30=WARNING, 40=ERROR, 50=CRITICAL",
+    )
+    parser.add_argument(
+        "--gossip_receiver_log_level",
+        type=int,
+        default=logging.DEBUG,
+        help="Log level for gossip receiver. 10=DEBUG, 20=INFO, 30=WARNING, 40=ERROR, 50=CRITICAL",
+    )
+    parser.add_argument(
+        "--publish_heartbeat_log_level",
+        type=int,
+        default=logging.DEBUG,
+        help="Log level for publish heartbeat. 10=DEBUG, 20=INFO, 30=WARNING, 40=ERROR, 50=CRITICAL",
+    )
+    parser.add_argument(
+        "--maintain_connections_log_level",
+        type=int,
+        default=logging.DEBUG,
+        help="Log level for maintain connections. 10=DEBUG, 20=INFO, 30=WARNING, 40=ERROR, 50=CRITICAL",
+    )
+
+    parser.add_argument(
         "--private_key_path",
         type=str,
         default=None,
@@ -239,6 +382,11 @@ python -m subnet.cli.run_node \
     )
 
     parser.add_argument("--no_blockchain_rpc", action="store_true", help="[Testing] Run with no RPC")
+
+    # Seed data for local db when using `--no_blockchain_rpc`
+    parser.add_argument(
+        "--insert_mock_overwatch_node", action="store_true", help="[Testing] Insert mock overwatch node"
+    )
 
     parser.add_argument(
         "--local_rpc",
@@ -258,6 +406,13 @@ python -m subnet.cli.run_node \
         type=str,
         required=False,
         help="Coldkey phrase that controls actions which include funds, such as registering, and staking",
+    )
+
+    parser.add_argument(
+        "--telemetry_url",
+        type=str,
+        required=False,
+        help="Telemetry URL for Prometheus",
     )
 
     parser.add_argument(
@@ -307,10 +462,10 @@ def main() -> None:
 
     db = RocksDB(base_path)
 
-    if not args.peerstore_db_path:
-        peerstore_db_path = f"/tmp/peerstore_{port}.ldb"
-    else:
-        peerstore_db_path = args.peerstore_db_path
+    telemetry = None
+    if args.telemetry_url:
+        logger.info(f"Telemetry events starting at URL: {args.telemetry_url}")
+        telemetry = Telemetry(args.telemetry_url, args.subnet_id, args.subnet_node_id, key_pair)
 
     hotkey = None
     start_epoch = None
@@ -340,7 +495,9 @@ def main() -> None:
         if args.subnet_id < 128000:
             real_subnet_id = hypertensor.get_subnet_id_from_friendly_id(args.subnet_id)
             logger.info(
-                f"Subnet ID {args.subnet_id} is less than 128000 and likely a friendly ID, using real subnet ID {real_subnet_id}"
+                "Subnet ID %s is less than 128000 and likely a friendly ID, using real subnet ID %s",
+                args.subnet_id,
+                real_subnet_id,
             )
             args.subnet_id = int(str(real_subnet_id))
 
@@ -362,24 +519,26 @@ def main() -> None:
                     f"Subnet node hotkey does not match. Expected: {subnet_node_info.hotkey}, Actual: {hotkey}"
                 )
 
-            if not PeerID.from_pubkey(key_pair.public_key).__eq__(subnet_node_info.peer_info.peer_id):
+            local_peer_id = PeerID.from_pubkey(key_pair.public_key)
+
+            if not local_peer_id.__eq__(subnet_node_info.peer_info.peer_id):
                 logger.warning(
                     "Subnet node peer ID does not match. This can be ignored if running a bootnode or client peer. "
-                    f"Expected: {subnet_node_info.peer_info.peer_id}, Actual: {PeerID.from_pubkey(key_pair.public_key).to_base58()}"  # noqa: E501
+                    f"Expected: {subnet_node_info.peer_info.peer_id}, Actual: {local_peer_id.to_string()}"  # noqa: E501
                 )
 
             if subnet_node_info.bootnode_peer_info:
-                if not PeerID.from_pubkey(key_pair.public_key).__eq__(subnet_node_info.bootnode_peer_info.peer_id):
+                if not local_peer_id.__eq__(subnet_node_info.bootnode_peer_info.peer_id):
                     logger.warning(
                         "Subnet node bootnode peer ID does not match. This can be ignored if you're not running a bootnode. "  # noqa: E501
-                        f"Expected: {subnet_node_info.bootnode_peer_info.peer_id}, Actual: {PeerID.from_pubkey(key_pair.public_key).to_base58()}"  # noqa: E501
+                        f"Expected: {subnet_node_info.bootnode_peer_info.peer_id}, Actual: {local_peer_id.to_string()}"  # noqa: E501
                     )
 
             if subnet_node_info.client_peer_info:
-                if not PeerID.from_pubkey(key_pair.public_key).__eq__(subnet_node_info.client_peer_info.peer_id):
+                if not local_peer_id.__eq__(subnet_node_info.client_peer_info.peer_id):
                     logger.warning(
                         "Subnet node client peer ID does not match. This can be ignored if you're not running a client peer. "  # noqa: E501
-                        f"Expected: {subnet_node_info.client_peer_info.peer_id}, Actual: {PeerID.from_pubkey(key_pair.public_key).to_base58()}"  # noqa: E501
+                        f"Expected: {subnet_node_info.client_peer_info.peer_id}, Actual: {local_peer_id.to_string()}"  # noqa: E501
                     )
 
             start_epoch = subnet_node_info.classification["start_epoch"]
@@ -397,7 +556,7 @@ def main() -> None:
             bootnode_peer_id="",
             client_peer_id="",
             reset_db=True if not args.bootstrap else False,
-            insert_mock_overwatch_node=True if not args.bootstrap else False,
+            insert_mock_overwatch_node=True if not args.bootstrap and args.insert_mock_overwatch_node else False,
         )
 
     slot = hypertensor.get_subnet_slot(args.subnet_id)
@@ -441,6 +600,20 @@ def main() -> None:
             subnet_node_id=args.subnet_node_id,
             hypertensor=hypertensor,
             is_bootstrap=args.is_bootstrap,
+            enable_pubsub_validator=not args.disable_pubsub_validator,
+            enable_consensus=not args.disable_consensus,
+            enable_proof_of_stake=not args.disable_proof_of_stake,
+            strict_maintain_connections=not args.disable_strict_maintain_connections,
+            enable_mDNS=args.enable_mDNS,
+            enable_upnp=args.enable_upnp,
+            enable_autotls=args.enable_autotls,
+            resource_manager=None,  # TODO: Libp2p resource manager needs work to be implemented
+            psk=args.psk,
+            telemetry=telemetry,
+            heartbeat_validator_log_level=args.heartbeat_validator_log_level,
+            gossip_receiver_log_level=args.gossip_receiver_log_level,
+            publish_heartbeat_log_level=args.publish_heartbeat_log_level,
+            maintain_connections_log_level=args.maintain_connections_log_level,
         )
         trio.run(server.run)
     except KeyboardInterrupt:

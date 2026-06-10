@@ -97,4 +97,5 @@ class POSTransport:
             return pos
         except Exception as e:
             logger.warning(f"Proof of stake failed: {e}", exc_info=True)
-            return False
+            # If error with RPC, allow connection
+            return True
